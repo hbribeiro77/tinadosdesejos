@@ -1,5 +1,8 @@
+const vitest = process.env.VITEST === "true";
+
+/** @type {import('postcss-load-config').Config} */
 const config = {
-  plugins: ["@tailwindcss/postcss"],
+  plugins: vitest ? [] : ["@tailwindcss/postcss"],
 };
 
 export default config;
