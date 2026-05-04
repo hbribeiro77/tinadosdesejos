@@ -4,6 +4,7 @@ import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { useMemo } from "react";
 import type { GitLabIssueSummaryDto } from "@/lib/gitlab-issue-summary-dto-types";
+import { WishGitlabIssueCreatedAtMetadataDisplayBadgeSpanWithSkyVioletTealToneVariants } from "@/components/board/wish-gitlab-issue-created-at-metadata-display-badge-span-with-sky-violet-teal-tone-variants";
 import { WishGitlabIssueSummaryLabelColoredBadgeSpan } from "@/components/board/wish-gitlab-issue-summary-label-colored-badge-span";
 import {
   WISH_GITLAB_TRIAGE_DND_KIND,
@@ -53,8 +54,14 @@ export function WishGitlabTriageIssueDraggableRowFromDrawer(props: WishGitlabTri
           {...attributes}
         >
           <div className="text-sm font-semibold leading-snug">{props.preview.title}</div>
-          <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-300">
-            {props.preview.projectPath}#{props.preview.iid}
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-zinc-600 dark:text-zinc-300">
+            <span>
+              {props.preview.projectPath}#{props.preview.iid}
+            </span>
+            <WishGitlabIssueCreatedAtMetadataDisplayBadgeSpanWithSkyVioletTealToneVariants
+              iso8601={props.preview.createdAt}
+              tone="violet"
+            />
           </div>
           {props.preview.labels?.length ? (
             <div className="mt-2 flex flex-wrap gap-1">

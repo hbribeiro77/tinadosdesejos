@@ -6,6 +6,10 @@ export type GitLabTriageImportDefaultsDto = {
   /** Labels que o servidor aplica ao criar issue pelo modal (CSV; vazio = nenhuma). */
   createIssueDefaultLabelsDisplay: string;
   labelsJoinOperator: "and";
+  /** Todas precisam estar na issue para exibir o botão Matriz DVITU no card. */
+  dvituRequiredIssueLabelNames: string[];
+  /** Todas precisam estar na issue para exibir o botão Matriz GUT no card. */
+  gutRequiredIssueLabelNames: string[];
 };
 
 export async function clientFetchGitlabTriageImportDefaults(): Promise<GitLabTriageImportDefaultsDto | null> {

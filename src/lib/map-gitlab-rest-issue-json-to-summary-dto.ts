@@ -114,6 +114,7 @@ export function mapGitLabRestIssueJsonToSummaryDto(
   const state = readString(issue.state) ?? "unknown";
   const webUrl = readString(issue.web_url) ?? "";
   const updatedAt = readString(issue.updated_at) ?? new Date().toISOString();
+  const createdAt = readString(issue.created_at) ?? updatedAt;
 
   return {
     ...(gitlabIssueId != null ? { gitlabIssueId } : {}),
@@ -124,6 +125,7 @@ export function mapGitLabRestIssueJsonToSummaryDto(
     projectPath,
     labels: mapLabels(issue),
     assignees: mapAssignees(issue),
+    createdAt,
     updatedAt,
   };
 }

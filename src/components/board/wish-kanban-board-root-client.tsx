@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { GitLabIssueSummaryDto } from "@/lib/gitlab-issue-summary-dto-types";
+import type { SmartTaskNormalizedTask } from "@/lib/smart-task-normalized-task-domain-types";
 import {
   closestCorners,
   DndContext,
@@ -42,7 +43,7 @@ import { wishKanbanBoardApplyBulkGitlabIssueResolveResponseBatchToBoard } from "
 import { gitlabIssueUrlAlreadyPresentOnWishKanbanBoard } from "@/lib/gitlab-issue-url-canonical-key-for-board-match";
 import { wishKanbanBoardComputeMatchingCardIdsForSearchQueryString } from "@/lib/wish-kanban-board-compute-matching-card-ids-for-search-query-string";
 import {
-  wishKanbanBoardCountCardsWithNonEmptyIssueUrl,
+  wishKanbanBoardCountCardsWithResolvableGitLabIssueUrl,
   wishKanbanBoardGroupCardIdsByTrimmedIssueUrlFromBoard,
 } from "@/lib/wish-kanban-board-group-card-ids-by-trimmed-issue-url-from-board";
 import {
@@ -54,6 +55,23 @@ import {
   WISH_GITLAB_TRIAGE_DND_KIND,
   type WishGitlabTriageDrawerDnDPayload,
 } from "@/lib/wish-gitlab-triage-drawer-dnd-payload-types";
+import {
+  WISH_SMARTTASK_TRIAGE_DND_KIND,
+  type WishSmartTaskTriageDrawerDnDPayload,
+} from "@/lib/wish-smart-task-triage-drawer-dnd-payload-types";
+import {
+  isSmartTaskKanbanIssueUrl,
+  parseSmartTaskIdFromKanbanIssueUrl,
+} from "@/lib/smart-task-kanban-issue-url-build-and-parse-task-id";
+import {
+  readWishSmartTaskImportedTasksFromLocalStorage,
+  writeWishSmartTaskImportedTasksToLocalStorage,
+} from "@/lib/wish-smart-task-imported-tasks-local-storage-serialization";
+import { mergeSmartTaskNormalizedTaskArrayByIdPreferIncoming } from "@/lib/merge-smart-task-normalized-task-array-by-id-prefer-incoming";
+import { parseWishSmartTaskHandoffHashFromWindowLocationV1 } from "@/lib/wish-smart-task-parse-handoff-hash-from-window-location-v1";
+import { wishSmartTaskReadBrowserLocationHashFragmentForHandoffOrEmptyV1 } from "@/lib/wish-smart-task-read-browser-location-hash-fragment-for-handoff-or-empty-v1";
+import { WISH_SMARTTASK_HANDOFF_POST_MESSAGE_TYPE_V1 } from "@/lib/wish-smart-task-handoff-post-message-type-v1-constant";
+import { wishSmartTaskIsHttpOriginAllowedForPostMessageHandoffFromSmarttaskV1 } from "@/lib/wish-smart-task-is-http-origin-allowed-for-post-message-handoff-from-smarttask-v1";
 import {
   WishKanbanBoardDualSyncedHorizontalScrollbarsTopAndBottomClient,
   type WishKanbanBoardDualSyncedHorizontalScrollbarsHandle,
@@ -69,12 +87,36 @@ type AddIssueModalState =
   | { open: false }
   | { open: true; columnId: string };
 
+function activeDataIsWishTriageDrawerDnD(
+  activeData: unknown,
+): activeData is WishGitlabTriageDrawerDnDPayload | WishSmartTaskTriageDrawerDnDPayload {
+  if (!activeData || typeof activeData !== "object" || !("kind" in activeData)) return false;
+  const k = (activeData as { kind?: unknown }).kind;
+  return k === WISH_GITLAB_TRIAGE_DND_KIND || k === WISH_SMARTTASK_TRIAGE_DND_KIND;
+}
+
+/** Remove `st-handoff` da query e/ou o fragmento com handoff, sem recarregar a página. */
+function stripWishSmartTaskHandoffParamsFromWindowLocationBarV1() {
+  if (typeof window === "undefined") return;
+  const { pathname, search, hash } = window.location;
+  let nextSearch = search;
+  if (search.includes("st-handoff")) {
+    const sp = new URLSearchParams(search.startsWith("?") ? search.slice(1) : "");
+    sp.delete("st-handoff");
+    nextSearch = sp.toString() ? `?${sp.toString()}` : "";
+  }
+  const nextHash = hash.includes("st-handoff") ? "" : hash;
+  window.history.replaceState(null, "", `${pathname}${nextSearch}${nextHash}`);
+}
+
 export function WishKanbanBoardRootClient() {
   const tina = useWishTinaDialog();
   const [board, setBoard] = useState<ReturnType<typeof readWishKanbanBoardFromLocalStorage>>(null);
   const [addIssueModal, setAddIssueModal] = useState<AddIssueModalState>({ open: false });
   const [triageDrawerOpen, setTriageDrawerOpen] = useState(false);
   const [triageIssues, setTriageIssues] = useState<GitLabIssueSummaryDto[]>([]);
+  const [smartTaskTasks, setSmartTaskTasks] = useState<SmartTaskNormalizedTask[]>([]);
+  const skipFirstSmartTaskPersistToLocalStorageRef = useRef(true);
   const triageDropFollowUpRef = useRef<{ cardId: string; issueUrl: string } | null>(null);
   /** Ref da faixa horizontal real (`mainRef`) — scroll até o fim ao criar coluna. */
   const boardHorizontalScrollRef = useRef<WishKanbanBoardDualSyncedHorizontalScrollbarsHandle>(null);
@@ -103,6 +145,20 @@ export function WishKanbanBoardRootClient() {
   const [boardBulkRefreshInProgress, setBoardBulkRefreshInProgress] = useState(false);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
 
+  const applySmartTaskHandoffNormalizedTasks = useCallback((incoming: SmartTaskNormalizedTask[]) => {
+    const stored = readWishSmartTaskImportedTasksFromLocalStorage() ?? [];
+    const nextTasks = mergeSmartTaskNormalizedTaskArrayByIdPreferIncoming(stored, incoming);
+    writeWishSmartTaskImportedTasksToLocalStorage(nextTasks);
+    setSmartTaskTasks(nextTasks);
+    setTriageDrawerOpen(true);
+    if (
+      typeof window !== "undefined" &&
+      (window.location.hash.includes("st-handoff") || window.location.search.includes("st-handoff"))
+    ) {
+      stripWishSmartTaskHandoffParamsFromWindowLocationBarV1();
+    }
+  }, []);
+
   useEffect(() => {
     setBoard(readWishKanbanBoardFromLocalStorage() ?? createEmptyWishKanbanBoard());
   }, []);
@@ -111,6 +167,63 @@ export function WishKanbanBoardRootClient() {
     if (!board) return;
     writeWishKanbanBoardToLocalStorage(board);
   }, [board]);
+
+  /**
+   * Hidratação SmartTask + handoff por `#st-handoff=` ou `?st-handoff=` na mesma corrida.
+   * `useLayoutEffect` corre antes da pintura; evita perder o fragmento; em dev avisa se o payload falhar.
+   */
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const stored = readWishSmartTaskImportedTasksFromLocalStorage() ?? [];
+    const hash = wishSmartTaskReadBrowserLocationHashFragmentForHandoffOrEmptyV1();
+    const search = window.location.search ?? "";
+    const hasHandoffMarker = hash.includes("st-handoff") || search.includes("st-handoff");
+    if (hasHandoffMarker) {
+      const parsed = parseWishSmartTaskHandoffHashFromWindowLocationV1(hash, search);
+      if (parsed.ok) {
+        applySmartTaskHandoffNormalizedTasks(parsed.tasks);
+        return;
+      }
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[Tina / SmartTask handoff] Falha ao interpretar URL:", parsed.message);
+      }
+    }
+    setSmartTaskTasks(stored);
+  }, [applySmartTaskHandoffNormalizedTasks]);
+
+  /**
+   * Fallback quando o fragmento URL se perde: SmartTask envia o mesmo payload via `postMessage`.
+   * `useLayoutEffect` regista o listener cedo (antes de `useEffect`), para não perder mensagens imediatas.
+   */
+  useLayoutEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (!wishSmartTaskIsHttpOriginAllowedForPostMessageHandoffFromSmarttaskV1(e.origin)) return;
+      const data = e.data;
+      if (!data || typeof data !== "object") return;
+      if ((data as { type?: unknown }).type !== WISH_SMARTTASK_HANDOFF_POST_MESSAGE_TYPE_V1) return;
+      const payload = (data as { payload?: unknown }).payload;
+      if (typeof payload !== "string" || !payload.trim()) return;
+      const parsed = parseWishSmartTaskHandoffHashFromWindowLocationV1(`#st-handoff=${payload.trim()}`, "");
+      if (!parsed.ok) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[Tina / SmartTask handoff] postMessage inválido:", parsed.message);
+        }
+        return;
+      }
+      applySmartTaskHandoffNormalizedTasks(parsed.tasks);
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [applySmartTaskHandoffNormalizedTasks]);
+
+  useEffect(() => {
+    if (skipFirstSmartTaskPersistToLocalStorageRef.current) {
+      skipFirstSmartTaskPersistToLocalStorageRef.current = false;
+      return;
+    }
+    writeWishSmartTaskImportedTasksToLocalStorage(smartTaskTasks);
+  }, [smartTaskTasks]);
 
   /** Gaveta alta empurrava o documento; ao fechar, volta o scroll da página para o topo. */
   useLayoutEffect(() => {
@@ -178,6 +291,14 @@ export function WishKanbanBoardRootClient() {
       ? undefined
       : (cardId: string) => !searchMatchingCardIds.has(cardId);
 
+  const mergeGitlabSnapshotAfterDvitu = useCallback((cardId: string, data: GitLabIssueSummaryDto) => {
+    setBoard((prev) => (prev ? wishKanbanBoardUpsertCardSnapshot(prev, cardId, data) : prev));
+  }, []);
+
+  const mergeGitlabSnapshotAfterGut = useCallback((cardId: string, data: GitLabIssueSummaryDto) => {
+    setBoard((prev) => (prev ? wishKanbanBoardUpsertCardSnapshot(prev, cardId, data) : prev));
+  }, []);
+
   if (!board) {
     return (
       <div className="flex min-h-[50vh] w-full items-center justify-center text-sm text-zinc-600 dark:text-zinc-300">
@@ -192,14 +313,13 @@ export function WishKanbanBoardRootClient() {
     const activeId = String(event.active.id);
     const activeData = event.active.data.current;
 
-    if (
-      activeData &&
-      typeof activeData === "object" &&
-      "kind" in activeData &&
-      (activeData as { kind?: unknown }).kind === WISH_GITLAB_TRIAGE_DND_KIND
-    ) {
-      const payload = activeData as WishGitlabTriageDrawerDnDPayload;
-      setActiveDragOverlay({ kind: "triage", preview: payload.preview });
+    if (activeDataIsWishTriageDrawerDnD(activeData)) {
+      const payload = activeData;
+      setActiveDragOverlay(
+        payload.kind === WISH_SMARTTASK_TRIAGE_DND_KIND
+          ? { kind: "triageSmartTask", preview: payload.preview }
+          : { kind: "triage", preview: payload.preview },
+      );
       return;
     }
 
@@ -240,11 +360,7 @@ export function WishKanbanBoardRootClient() {
       return;
     }
 
-    const isTriage =
-      activeData &&
-      typeof activeData === "object" &&
-      "kind" in activeData &&
-      (activeData as { kind?: unknown }).kind === WISH_GITLAB_TRIAGE_DND_KIND;
+    const isTriage = activeDataIsWishTriageDrawerDnD(activeData);
 
     const sourceColumnId = isTriage ? null : findWishKanbanColumnIdContainingCard(board, activeId);
 
@@ -317,15 +433,11 @@ export function WishKanbanBoardRootClient() {
       return;
     }
 
-    // Triagem: adicionar card na posição indicada pelo placeholder
-    if (
-      activeData &&
-      typeof activeData === "object" &&
-      "kind" in activeData &&
-      (activeData as { kind?: unknown }).kind === WISH_GITLAB_TRIAGE_DND_KIND
-    ) {
-      const payload = activeData as WishGitlabTriageDrawerDnDPayload;
+    // Triagem (GitLab ou SmartTask): adicionar card na posição indicada pelo placeholder
+    if (activeDataIsWishTriageDrawerDnD(activeData)) {
+      const payload = activeData;
       const issueUrl = payload.issueUrl;
+      const isGitLabTriage = payload.kind === WISH_GITLAB_TRIAGE_DND_KIND;
 
       triageDropFollowUpRef.current = null;
 
@@ -344,13 +456,15 @@ export function WishKanbanBoardRootClient() {
           payload.preview,
           pendingCrossInsert?.insertIndex,
         );
-        triageDropFollowUpRef.current = { cardId, issueUrl };
+        if (isGitLabTriage) {
+          triageDropFollowUpRef.current = { cardId, issueUrl };
+        }
         return next;
       });
 
       const followUp = triageDropFollowUpRef.current;
       triageDropFollowUpRef.current = null;
-      if (followUp) {
+      if (followUp && isGitLabTriage) {
         const { cardId, issueUrl: urlToResolve } = followUp;
         queueMicrotask(() => {
           void (async () => {
@@ -364,7 +478,14 @@ export function WishKanbanBoardRootClient() {
         });
       }
 
-      setTriageIssues((prev) => prev.filter((i) => i.webUrl !== issueUrl));
+      if (isGitLabTriage) {
+        setTriageIssues((prev) => prev.filter((i) => i.webUrl !== issueUrl));
+      } else {
+        const sid = parseSmartTaskIdFromKanbanIssueUrl(issueUrl);
+        if (sid) {
+          setSmartTaskTasks((prev) => prev.filter((t) => t.id !== sid));
+        }
+      }
       return;
     }
 
@@ -393,6 +514,7 @@ export function WishKanbanBoardRootClient() {
   async function refreshCard(cardId: string) {
     const card = board?.cardsById[cardId];
     if (!card) return;
+    if (isSmartTaskKanbanIssueUrl(card.issueUrl)) return;
 
     const res = await clientFetchGitLabIssueResolve(card.issueUrl);
     setBoard((prev) => {
@@ -406,7 +528,7 @@ export function WishKanbanBoardRootClient() {
     if (!board || boardBulkRefreshInProgress) return;
     const urlToCardIds = wishKanbanBoardGroupCardIdsByTrimmedIssueUrlFromBoard(board);
     const distinctIssues = urlToCardIds.size;
-    const cardCount = wishKanbanBoardCountCardsWithNonEmptyIssueUrl(board);
+    const cardCount = wishKanbanBoardCountCardsWithResolvableGitLabIssueUrl(board);
     if (distinctIssues === 0) return;
 
     const ok = await tina.confirm(
@@ -436,7 +558,7 @@ export function WishKanbanBoardRootClient() {
     }
   }
 
-  const boardCardCountForBulk = wishKanbanBoardCountCardsWithNonEmptyIssueUrl(board);
+  const boardCardCountForBulk = wishKanbanBoardCountCardsWithResolvableGitLabIssueUrl(board);
   const bulkRefreshDisabled = boardBulkRefreshInProgress || boardCardCountForBulk === 0;
   const boardIssueCountOnBoard = Object.keys(board.cardsById).length;
   const filteredIssueCount = searchMatchingCardIds ? searchMatchingCardIds.size : boardIssueCountOnBoard;
@@ -636,6 +758,8 @@ export function WishKanbanBoardRootClient() {
                           setBoard((prev) => (prev ? wishKanbanBoardRemoveCard(prev, cardId) : prev))
                         }
                         onRefreshCard={refreshCard}
+                        onMergeGitlabSnapshotAfterDvitu={mergeGitlabSnapshotAfterDvitu}
+                        onMergeGitlabSnapshotAfterGut={mergeGitlabSnapshotAfterGut}
                         onRenameColumn={(colId, title) =>
                           setBoard((prev) => (prev ? wishKanbanBoardRenameColumn(prev, colId, title) : prev))
                         }
@@ -669,6 +793,8 @@ export function WishKanbanBoardRootClient() {
                     board={board}
                     issues={triageIssues}
                     setIssues={setTriageIssues}
+                    smartTaskTasks={smartTaskTasks}
+                    setSmartTaskTasks={setSmartTaskTasks}
                   />
                 </div>
               </div>

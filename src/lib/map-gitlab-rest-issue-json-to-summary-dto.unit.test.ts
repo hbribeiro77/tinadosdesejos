@@ -10,6 +10,7 @@ describe("mapGitLabRestIssueJsonToSummaryDto labels", () => {
       state: "opened",
       web_url: "https://gitlab.example.com/a/b/-/issues/7",
       assignees: [],
+      created_at: "2025-06-15T08:30:00Z",
       updated_at: "2026-01-01T12:00:00Z",
     }) as Record<string, unknown>;
 
@@ -23,6 +24,12 @@ describe("mapGitLabRestIssueJsonToSummaryDto labels", () => {
       "a/b",
     );
     expect(dto.labels).toEqual([{ name: "bug", color: "#ff0000" }]);
+  });
+
+  it("mapeia created_at para createdAt", () => {
+    const dto = mapGitLabRestIssueJsonToSummaryDto(baseIssue(), "a/b");
+    expect(dto.createdAt).toBe("2025-06-15T08:30:00Z");
+    expect(dto.updatedAt).toBe("2026-01-01T12:00:00Z");
   });
 
   it("labels como strings recebem cor de label_details quando existir", () => {

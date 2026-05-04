@@ -16,9 +16,13 @@ export function wishKanbanBoardSearchHaystackForCardFromBoard(
       d.state,
       d.projectPath,
       d.webUrl,
+      d.createdAt,
+      d.updatedAt,
       ...d.labels.map((l) => l.name),
       ...d.assignees.flatMap((a) => [a.name, a.username]),
     );
+    if (d.smartTaskDescriptionMarkdown) parts.push(d.smartTaskDescriptionMarkdown);
+    if (d.smartTaskSearchHaystack) parts.push(d.smartTaskSearchHaystack);
   }
   return parts.filter(Boolean).join(" ");
 }

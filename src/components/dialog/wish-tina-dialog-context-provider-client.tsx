@@ -95,7 +95,7 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
       {props.children}
       {dialogVisible ? (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-violet-950/35 p-4 backdrop-blur-[2px] dark:bg-black/55"
+          className="fixed inset-0 z-[99999] flex items-center justify-center bg-violet-950/35 p-4 backdrop-blur-[2px] dark:bg-black/55"
           role="presentation"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {

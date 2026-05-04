@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { gitlabDvituRequiredIssueLabelNamesForPlayButtonAndSubmitFromEnv } from "@/lib/gitlab-dvitu-read-required-label-names-from-env-for-eligibility-and-removal";
+import { gitlabGutRequiredIssueLabelNamesForPlayButtonAndSubmitFromEnv } from "@/lib/gitlab-gut-read-required-label-names-from-env-for-eligibility-and-removal";
 
 /** Expõe apenas defaults não secretos para preencher a UI da gaveta de importação. */
 export async function GET() {
@@ -26,5 +28,9 @@ export async function GET() {
     createIssueDefaultLabelsDisplay,
     /** GitLab lista por grupo: várias labels no parâmetro = AND (todas devem estar na issue). */
     labelsJoinOperator: "and" as const,
+    /** Labels que precisam estar na issue para o botão DVITU (triagem env + Melhoria). */
+    dvituRequiredIssueLabelNames: gitlabDvituRequiredIssueLabelNamesForPlayButtonAndSubmitFromEnv(),
+    /** Labels que precisam estar na issue para o botão GUT (triagem env + Bug). */
+    gutRequiredIssueLabelNames: gitlabGutRequiredIssueLabelNamesForPlayButtonAndSubmitFromEnv(),
   });
 }

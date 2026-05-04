@@ -5,6 +5,7 @@ import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { WishKanbanBoard } from "@/lib/wish-kanban-board-domain-types";
+import type { GitLabIssueSummaryDto } from "@/lib/gitlab-issue-summary-dto-types";
 import {
   wishKanbanColumnCardsSortableContextId,
   wishKanbanColumnDropId,
@@ -21,6 +22,9 @@ type WishKanbanColumnWithSortableCardsProps = {
   onAddCard: (columnId: string) => void;
   onRemoveCard: (cardId: string) => void;
   onRefreshCard: (cardId: string) => Promise<void>;
+  /** Após `POST` DVITU bem-sucedido: mescla snapshot sem novo roundtrip de resolve. */
+  onMergeGitlabSnapshotAfterDvitu?: (cardId: string, data: GitLabIssueSummaryDto) => void;
+  onMergeGitlabSnapshotAfterGut?: (cardId: string, data: GitLabIssueSummaryDto) => void;
   onRenameColumn: (columnId: string, title: string) => void;
   onDeleteColumn: (columnId: string) => void;
   onToggleColumnCollapsed: (columnId: string, collapsed: boolean) => void;
@@ -38,6 +42,8 @@ function buildCardListWithPlaceholder(
   insertBeforeIndex: number | null,
   onRemove: (id: string) => void,
   onRefresh: (id: string) => Promise<void>,
+  onMergeGitlabSnapshotAfterDvitu: ((cardId: string, data: GitLabIssueSummaryDto) => void) | undefined,
+  onMergeGitlabSnapshotAfterGut: ((cardId: string, data: GitLabIssueSummaryDto) => void) | undefined,
   isCardMutedByBoardSearch?: (cardId: string) => boolean,
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -54,6 +60,8 @@ function buildCardListWithPlaceholder(
           card={card}
           onRemove={onRemove}
           onRefresh={onRefresh}
+          onMergeGitlabSnapshotAfterDvitu={onMergeGitlabSnapshotAfterDvitu}
+          onMergeGitlabSnapshotAfterGut={onMergeGitlabSnapshotAfterGut}
           mutedByBoardSearch={isCardMutedByBoardSearch?.(card.id) ?? false}
         />,
       );
@@ -319,6 +327,8 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
             props.insertBeforeIndex ?? null,
             props.onRemoveCard,
             props.onRefreshCard,
+            props.onMergeGitlabSnapshotAfterDvitu,
+            props.onMergeGitlabSnapshotAfterGut,
             props.isCardMutedByBoardSearch,
           )}
         </div>

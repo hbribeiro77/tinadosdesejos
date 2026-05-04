@@ -15,6 +15,7 @@ function json(body: GitLabTriageGroupIssuesListResponse, init?: { status?: numbe
 function buildMockTriageIssues(baseUrl: string): GitLabIssueSummaryDto[] {
   const origin = normalizeGitlabBaseUrl(baseUrl);
   const p = "portal-da-defensoria/exemplo-projeto";
+  const t = new Date().toISOString();
   return [
     {
       gitlabIssueId: 900001,
@@ -25,7 +26,8 @@ function buildMockTriageIssues(baseUrl: string): GitLabIssueSummaryDto[] {
       projectPath: p,
       labels: [{ name: "Triagem de issues", color: null }],
       assignees: [],
-      updatedAt: new Date().toISOString(),
+      createdAt: t,
+      updatedAt: t,
     },
     {
       gitlabIssueId: 900002,
@@ -36,7 +38,8 @@ function buildMockTriageIssues(baseUrl: string): GitLabIssueSummaryDto[] {
       projectPath: p,
       labels: [{ name: "Triagem de issues", color: null }],
       assignees: [],
-      updatedAt: new Date().toISOString(),
+      createdAt: t,
+      updatedAt: t,
     },
   ];
 }

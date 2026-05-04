@@ -25,6 +25,7 @@ function getHostMismatchError(): GitLabIssueResolveResponse {
 }
 
 function buildMockSummary(parsed: ReturnType<typeof parseGitLabIssueUrl>): GitLabIssueSummaryDto {
+  const now = new Date().toISOString();
   return {
     iid: parsed.iid,
     title: `[MOCK] Issue ${parsed.projectPath}#${parsed.iid}`,
@@ -33,7 +34,8 @@ function buildMockSummary(parsed: ReturnType<typeof parseGitLabIssueUrl>): GitLa
     projectPath: parsed.projectPath,
     labels: [{ name: "mock", color: "rgb(108, 163, 255)" }],
     assignees: [{ name: "Mock User", username: "mock.user", avatarUrl: null }],
-    updatedAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
 }
 

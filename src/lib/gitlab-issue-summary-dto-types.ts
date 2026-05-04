@@ -19,7 +19,13 @@ export type GitLabIssueSummaryDto = {
   projectPath: string;
   labels: GitLabIssueLabelSummaryDto[];
   assignees: GitLabIssueAssigneeSummaryDto[];
+  /** ISO 8601 — `created_at` da API REST do GitLab. */
+  createdAt: string;
   updatedAt: string;
+  /** Presente quando o card veio do SmartTask ( Markdown livre da exportação ). */
+  smartTaskDescriptionMarkdown?: string;
+  /** Texto extra para busca no quadro (descrição + subtarefas + metadados SmartTask). */
+  smartTaskSearchHaystack?: string;
 };
 
 export type GitLabIssueResolveSuccess = {

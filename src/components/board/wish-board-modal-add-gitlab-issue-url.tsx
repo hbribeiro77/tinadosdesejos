@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientFetchGitlabCreateIssueInProjectApi } from "@/lib/client-fetch-gitlab-create-issue-in-project-api";
 import { clientFetchGitlabTriageImportDefaults } from "@/lib/client-fetch-gitlab-triage-import-defaults-api";
 import {
@@ -26,9 +26,75 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
   const [error, setError] = useState<string | null>(null);
   const [createProjectHint, setCreateProjectHint] = useState<string | null>(null);
   const [createLabelsHint, setCreateLabelsHint] = useState<string | null>(null);
+  const issueUrlInputRef = useRef<HTMLInputElement>(null);
+  const createTitleInputRef = useRef<HTMLInputElement>(null);
 
   const canSubmitUrl = useMemo(() => issueUrl.trim().length > 0 && !submitting, [issueUrl, submitting]);
   const canSubmitCreate = useMemo(() => createTitle.trim().length > 0 && !submitting, [createTitle, submitting]);
+
+  const handleAdd = useCallback(async () => {
+    if (mode === "url") {
+      if (!canSubmitUrl) return;
+      setSubmitting(true);
+      setError(null);
+      try {
+        await props.onSubmit(issueUrl.trim());
+        writeWishBoardModalAddGitlabIssueLastSelectedModeToLocalStorage("url");
+        setIssueUrl("");
+        props.onClose();
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : "Falha ao adicionar issue.";
+        setError(message);
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    if (!canSubmitCreate) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await clientFetchGitlabCreateIssueInProjectApi({
+        title: createTitle.trim(),
+        description: createDescription.trim() || undefined,
+      });
+      if (!created.ok) {
+        throw new Error(created.message);
+      }
+      await props.onSubmit(created.issueUrl);
+      writeWishBoardModalAddGitlabIssueLastSelectedModeToLocalStorage("create");
+      setCreateTitle("");
+      setCreateDescription("");
+      props.onClose();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Falha ao adicionar issue.";
+      setError(message);
+    } finally {
+      setSubmitting(false);
+    }
+  }, [
+    mode,
+    canSubmitUrl,
+    canSubmitCreate,
+    issueUrl,
+    createTitle,
+    createDescription,
+    props.onSubmit,
+    props.onClose,
+  ]);
+
+  useEffect(() => {
+    if (!props.open) return;
+    const id = requestAnimationFrame(() => {
+      if (mode === "url") {
+        issueUrlInputRef.current?.focus();
+      } else {
+        createTitleInputRef.current?.focus();
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [props.open, mode]);
 
   useEffect(() => {
     if (!props.open) return;
@@ -125,12 +191,18 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
               Cole a URL da issue
             </label>
             <input
+              ref={issueUrlInputRef}
               id="gitlab-issue-url"
               className="mt-2 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-white/10 dark:bg-zinc-950"
               placeholder="https://gitlab.../-/issues/123"
               value={issueUrl}
               onChange={(e) => setIssueUrl(e.target.value)}
               disabled={submitting}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                void handleAdd();
+              }}
             />
           </>
         ) : (
@@ -158,6 +230,7 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
               Título
             </label>
             <input
+              ref={createTitleInputRef}
               id="gitlab-create-title"
               className="mt-2 w-full rounded-md border border-black/10 bg-white px-3 py-2 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-white/10 dark:bg-zinc-950"
               placeholder="Ex.: Corrigir timeout no login"
@@ -165,6 +238,11 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
               onChange={(e) => setCreateTitle(e.target.value)}
               disabled={submitting}
               maxLength={255}
+              onKeyDown={(e) => {
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                void handleAdd();
+              }}
             />
             <label className="mt-3 block text-sm text-zinc-700 dark:text-zinc-200" htmlFor="gitlab-create-description">
               Descrição (opcional)
@@ -199,37 +277,7 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
             type="button"
             className="rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
             disabled={mode === "url" ? !canSubmitUrl : !canSubmitCreate}
-            onClick={async () => {
-              setSubmitting(true);
-              setError(null);
-              try {
-                if (mode === "url") {
-                  await props.onSubmit(issueUrl.trim());
-                  writeWishBoardModalAddGitlabIssueLastSelectedModeToLocalStorage("url");
-                  setIssueUrl("");
-                  props.onClose();
-                  return;
-                }
-
-                const created = await clientFetchGitlabCreateIssueInProjectApi({
-                  title: createTitle.trim(),
-                  description: createDescription.trim() || undefined,
-                });
-                if (!created.ok) {
-                  throw new Error(created.message);
-                }
-                await props.onSubmit(created.issueUrl);
-                writeWishBoardModalAddGitlabIssueLastSelectedModeToLocalStorage("create");
-                setCreateTitle("");
-                setCreateDescription("");
-                props.onClose();
-              } catch (cause) {
-                const message = cause instanceof Error ? cause.message : "Falha ao adicionar issue.";
-                setError(message);
-              } finally {
-                setSubmitting(false);
-              }
-            }}
+            onClick={() => void handleAdd()}
           >
             {submitting ? (mode === "create" ? "Criando…" : "Adicionando…") : mode === "create" ? "Criar e adicionar" : "Adicionar"}
           </button>
