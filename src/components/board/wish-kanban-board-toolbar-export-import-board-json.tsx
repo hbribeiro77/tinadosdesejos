@@ -4,11 +4,12 @@ import { useWishTinaDialog } from "@/components/dialog/wish-tina-dialog-context-
 import type { WishKanbanBoard } from "@/lib/wish-kanban-board-domain-types";
 import {
   clearWishKanbanBoardFromLocalStorageAfterSqliteMigrationV1,
-  exportWishKanbanBoardJsonFile,
-  importWishKanbanBoardFromJsonFile,
+  exportWishKanbanBoardJsonFileWithMirroredDescriptionAssetsV1,
+  importWishKanbanBoardExportBundleFromJsonFileV1,
 } from "@/lib/wish-board-localstorage-serialization";
 import { clientFetchWishKanbanBoardPersistedV1Get } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
 import { clientFetchWishKanbanBoardPersistedV1Put } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
+import { clientFetchWishKanbanBoardDescriptionUploadedAssetsImportV1Put } from "@/lib/client-fetch-wish-kanban-board-description-uploaded-assets-import-v1-api";
 import {
   wishViewOnlyBoardImportApiKeyClearFromSessionStorageV1,
   wishViewOnlyBoardImportApiKeyReadFromSessionStorageV1,
@@ -23,6 +24,32 @@ type WishKanbanBoardToolbarExportImportBoardJsonProps = {
   boardImportRequiresApiKey?: boolean;
 };
 
+async function resolveImportApiKeyWithOptionalRetryPrompt(params: {
+  boardImportRequiresApiKey: boolean;
+  prompt: (message: string, options?: { inputType?: "text" | "password" }) => Promise<string | null>;
+  alert: (message: string) => Promise<void>;
+  initialMessage?: string;
+}): Promise<string | undefined> {
+  if (!params.boardImportRequiresApiKey) return undefined;
+
+  let key = wishViewOnlyBoardImportApiKeyReadFromSessionStorageV1();
+  if (!key) {
+    const entered = await params.prompt(
+      params.initialMessage ??
+        "Modo visualização: informe a chave de importação do servidor (WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY).",
+      { inputType: "password" },
+    );
+    if (entered === null) return "__cancelled__";
+    key = entered.trim();
+    if (!key) {
+      await params.alert("A chave de importação não pode ficar vazia.");
+      return "__cancelled__";
+    }
+    wishViewOnlyBoardImportApiKeyWriteToSessionStorageV1(key);
+  }
+  return key;
+}
+
 export function WishKanbanBoardToolbarExportImportBoardJson(
   props: WishKanbanBoardToolbarExportImportBoardJsonProps,
 ) {
@@ -34,8 +61,25 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
       <button
         type="button"
         className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
-        onClick={() => exportWishKanbanBoardJsonFile(props.board, "tinadosdesejos-board.json")}
-        title="Exportar JSON"
+        onClick={() => {
+          void (async () => {
+            try {
+              const { assetCount } = await exportWishKanbanBoardJsonFileWithMirroredDescriptionAssetsV1(
+                props.board,
+                "tinadosdesejos-board.json",
+              );
+              if (assetCount === 0) {
+                await tina.alert(
+                  "JSON exportado. Nenhuma imagem espelhada foi incluída (cards sem descrição com /uploads/ espelhado, ou assets ausentes no disco local).",
+                );
+              }
+            } catch (cause) {
+              const message = cause instanceof Error ? cause.message : "Falha ao exportar.";
+              void tina.alert(message);
+            }
+          })();
+        }}
+        title="Exportar JSON (quadro + imagens espelhadas da descrição)"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         <span className="hidden sm:inline">Exportar</span>
@@ -45,8 +89,8 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
         className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
         title={
           boardImportRequiresApiKey
-            ? "Importar JSON (exige chave de importação do servidor)"
-            : "Importar JSON (substitui o quadro salvo no servidor)"
+            ? "Importar JSON (quadro + imagens; exige chave de importação)"
+            : "Importar JSON (quadro + imagens espelhadas)"
         }
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
@@ -60,7 +104,10 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
             e.target.value = "";
             if (!file) return;
             try {
-              const next = await importWishKanbanBoardFromJsonFile(file);
+              const bundle = await importWishKanbanBoardExportBundleFromJsonFileV1(file);
+              const next = bundle.board;
+              const assets = bundle.descriptionUploadedAssetsBase64ByFileNameV1;
+              const assetCount = Object.keys(assets).length;
 
               const existing = await clientFetchWishKanbanBoardPersistedV1Get();
               if (existing.ok && existing.found) {
@@ -70,23 +117,41 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
                 if (!confirmed) return;
               }
 
-              let importApiKey: string | undefined;
-              if (boardImportRequiresApiKey) {
-                let key = wishViewOnlyBoardImportApiKeyReadFromSessionStorageV1();
-                if (!key) {
-                  const entered = await tina.prompt(
-                    "Modo visualização: informe a chave de importação do servidor (WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY).",
-                    { inputType: "password" },
-                  );
-                  if (entered === null) return;
-                  key = entered.trim();
-                  if (!key) {
-                    await tina.alert("A chave de importação não pode ficar vazia.");
-                    return;
-                  }
-                  wishViewOnlyBoardImportApiKeyWriteToSessionStorageV1(key);
+              let importApiKey = await resolveImportApiKeyWithOptionalRetryPrompt({
+                boardImportRequiresApiKey,
+                prompt: tina.prompt,
+                alert: tina.alert,
+              });
+              if (importApiKey === "__cancelled__") return;
+
+              if (assetCount > 0) {
+                let assetsPut = await clientFetchWishKanbanBoardDescriptionUploadedAssetsImportV1Put(assets, {
+                  importApiKey,
+                });
+                if (
+                  !assetsPut.ok &&
+                  boardImportRequiresApiKey &&
+                  assetsPut.code === WISH_VIEW_ONLY_BOARD_IMPORT_UNAUTHORIZED_CODE_V1
+                ) {
+                  wishViewOnlyBoardImportApiKeyClearFromSessionStorageV1();
+                  importApiKey = await resolveImportApiKeyWithOptionalRetryPrompt({
+                    boardImportRequiresApiKey,
+                    prompt: tina.prompt,
+                    alert: tina.alert,
+                    initialMessage: `${assetsPut.message}\n\nInforme a chave de importação novamente.`,
+                  });
+                  if (importApiKey === "__cancelled__") return;
+                  assetsPut = await clientFetchWishKanbanBoardDescriptionUploadedAssetsImportV1Put(assets, {
+                    importApiKey,
+                  });
                 }
-                importApiKey = key;
+                if (!assetsPut.ok) {
+                  if (assetsPut.code === WISH_VIEW_ONLY_BOARD_IMPORT_UNAUTHORIZED_CODE_V1) {
+                    wishViewOnlyBoardImportApiKeyClearFromSessionStorageV1();
+                  }
+                  await tina.alert(assetsPut.message);
+                  return;
+                }
               }
 
               let put = await clientFetchWishKanbanBoardPersistedV1Put(next, { importApiKey });
@@ -96,18 +161,14 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
                 put.code === WISH_VIEW_ONLY_BOARD_IMPORT_UNAUTHORIZED_CODE_V1
               ) {
                 wishViewOnlyBoardImportApiKeyClearFromSessionStorageV1();
-                const entered = await tina.prompt(
-                  `${put.message}\n\nInforme a chave de importação novamente.`,
-                  { inputType: "password" },
-                );
-                if (entered === null) return;
-                const retryKey = entered.trim();
-                if (!retryKey) {
-                  await tina.alert("A chave de importação não pode ficar vazia.");
-                  return;
-                }
-                wishViewOnlyBoardImportApiKeyWriteToSessionStorageV1(retryKey);
-                put = await clientFetchWishKanbanBoardPersistedV1Put(next, { importApiKey: retryKey });
+                importApiKey = await resolveImportApiKeyWithOptionalRetryPrompt({
+                  boardImportRequiresApiKey,
+                  prompt: tina.prompt,
+                  alert: tina.alert,
+                  initialMessage: `${put.message}\n\nInforme a chave de importação novamente.`,
+                });
+                if (importApiKey === "__cancelled__") return;
+                put = await clientFetchWishKanbanBoardPersistedV1Put(next, { importApiKey });
               }
 
               if (!put.ok) {
@@ -120,6 +181,12 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
 
               clearWishKanbanBoardFromLocalStorageAfterSqliteMigrationV1();
               props.onImportBoard(next);
+
+              if (assetCount === 0) {
+                await tina.alert(
+                  "Quadro importado. Este JSON não trouxe imagens espelhadas (versão 1 ou export sem assets). Na VPS as figuras da descrição podem ficar quebradas — exporte de novo no editor local (versão 2 inclui as imagens).",
+                );
+              }
             } catch (cause) {
               const message = cause instanceof Error ? cause.message : "Falha ao importar.";
               void tina.alert(message);

@@ -90,7 +90,7 @@ Na primeira carga após o deploy: se o SQLite estiver **vazio** e ainda existir 
 1. `WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=<segredo longo>`.
 2. **Não** definir `GITLAB_TOKEN`, `GITLAB_MOCK`, `GITLAB_TLS_INSECURE_DEV` nem vars SmartTask (viewer só lê snapshot local).
 3. Volume persistente em `data/` (`triage.db` + `gitlab-description-uploaded-assets-v1/`). O markdown exportado do editor deve apontar para assets já espelhados; copie a pasta de assets junto com o JSON se for outra máquina.
-4. Fluxo: editar no editor local → **Exportar** JSON (+ assets se preciso) → no viewer, **Importar** com a chave.
+4. Fluxo: editar no editor local → **Atualizar** cards (espelha imagens em `data/`) → **Exportar** JSON **v2** (inclui imagens em base64) → no viewer, **Importar** com a chave (grava quadro + arquivos em `data/`). JSON v1 antigo não traz imagens — na VPS ficam quebradas porque o proxy GitLab está bloqueado.
 5. Reverse proxy: HTTPS; recomenda-se rate limit e/ou IP allowlist no `PUT` `/api/wish-kanban-board/persisted-v1`.
 6. Smoke: flags com `viewOnlyMode: true`; `POST /api/gitlab/issues/resolve` → 403; import com Bearer correto → 200; descrição/imagens ok.
 
