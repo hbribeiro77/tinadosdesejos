@@ -82,21 +82,22 @@ Na primeira carga após o deploy: se o SQLite estiver **vazio** e ainda existir 
 
 - **`WISH_VIEW_ONLY_MODE=1`** no servidor: instância “viewer” — UI congelada; bloqueia create/resolve/triagem/DVITU/GUT, snapshot SmartTask, proxies de imagem e mutações de histórico. Mantém **GET** do quadro e servir assets já espelhados em `data/`. Não espelha imagens novas no GET/PUT do board.
 - **`WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY`**: obrigatória em view-only. O **PUT** do quadro (Importar) exige `Authorization: Bearer <key>`; sem a env configurada, todo PUT retorna **403** (`unauthorized_import`). A UI pede a chave e guarda só em `sessionStorage` da aba.
+- **`WISH_APP_ACCESS_SECRET`**: se definido (não-vazio), portão em `/entrar` com cookie HttpOnly assinado; middleware bloqueia o restante (APIs 401, páginas redirect). Separado da chave de import. Sem a env (dev local), o app abre direto.
 - Sem `WISH_VIEW_ONLY_MODE`: editor completo (autosave sem chave). Na toolbar, **Prévia produção** congela só a UI.
-- Flags: `GET /api/wish-app-runtime-flags-v1` → `{ viewOnlyMode, boardImportRequiresApiKey }`.
+- Flags: `GET /api/wish-app-runtime-flags-v1` → `{ viewOnlyMode, boardImportRequiresApiKey, accessGateRequired }`.
 
 ### Deploy viewer (checklist)
 
-1. `WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=<segredo longo>`.
+1. `WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=<segredo longo>` + `WISH_APP_ACCESS_SECRET=<outro segredo longo>`.
 2. **Não** definir `GITLAB_TOKEN`, `GITLAB_MOCK`, `GITLAB_TLS_INSECURE_DEV` nem vars SmartTask (viewer só lê snapshot local).
 3. Volume persistente em `data/` (`triage.db` + `gitlab-description-uploaded-assets-v1/`). O markdown exportado do editor deve apontar para assets já espelhados; copie a pasta de assets junto com o JSON se for outra máquina.
-4. Fluxo: editar no editor local → **Atualizar** cards (espelha imagens em `data/`) → **Exportar** JSON **v2** (inclui imagens em base64) → no viewer, **Importar** com a chave (grava quadro + arquivos em `data/`). JSON v1 antigo não traz imagens — na VPS ficam quebradas porque o proxy GitLab está bloqueado.
-5. Reverse proxy: HTTPS; recomenda-se rate limit e/ou IP allowlist no `PUT` `/api/wish-kanban-board/persisted-v1`.
-6. Smoke: flags com `viewOnlyMode: true`; `POST /api/gitlab/issues/resolve` → 403; import com Bearer correto → 200; descrição/imagens ok.
+4. Fluxo: editar no editor local → **Atualizar** cards (espelha imagens em `data/`) → **Exportar** JSON **v2** (inclui imagens em base64) → no viewer, entrar com o secret de acesso → **Importar** com a chave (grava quadro + arquivos em `data/`). JSON v1 antigo não traz imagens — na VPS ficam quebradas porque o proxy GitLab está bloqueado.
+5. Reverse proxy: HTTPS; recomenda-se rate limit e/ou IP allowlist no `PUT` `/api/wish-kanban-board/persisted-v1` e no `POST` `/api/wish-app-access-gate-v1`.
+6. Smoke: flags com `viewOnlyMode: true` e `accessGateRequired: true`; sem cookie → redirect `/entrar`; `POST /api/gitlab/issues/resolve` → 403; import com Bearer correto → 200; descrição/imagens ok.
 
 ## Limitações atuais
 
-- **Sem login** de usuário no app: um quadro `default` por instalação. No viewer, o write do quadro fica atrás da API key de importação; GET do board e assets espelhados continuam públicos na rede do servidor.
+- **Sem login por usuário** (SSO): um quadro `default` por instalação e um secret compartilhado de acesso. No viewer, o write do quadro fica atrás da API key de importação; leitura do board/assets exige o portão quando `WISH_APP_ACCESS_SECRET` está definido.
 - Certificados TLS internos / CA customizada são, em geral, **configuração de ambiente** (ex.: `NODE_EXTRA_CA_CERTS`), não regra de negócio do app.
 - Faça **backup** de `data/triage.db`, `data/gitlab-description-uploaded-assets-v1/` e/ou export JSON do quadro antes de atualizações grandes.
 
@@ -115,7 +116,7 @@ docker run --rm -p 3000:3000 `
   tinadosdesejos:latest
 ```
 
-Viewer com Compose: [`docker-compose.production-viewer-vps.yml`](docker-compose.production-viewer-vps.yml) — crie `.env.production` (`WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=...`, sem `GITLAB_TOKEN`), depois:
+Viewer com Compose: [`docker-compose.production-viewer-vps.yml`](docker-compose.production-viewer-vps.yml) — crie `.env.production` (`WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=...` + `WISH_APP_ACCESS_SECRET=...`, sem `GITLAB_TOKEN`), depois:
 
 ```powershell
 docker compose -f docker-compose.production-viewer-vps.yml up -d --build

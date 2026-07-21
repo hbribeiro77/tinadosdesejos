@@ -48,6 +48,7 @@ import {
 } from "@/lib/wish-kanban-board-group-card-ids-by-trimmed-issue-url-from-board";
 import { clientFetchWishKanbanBoardPersistedV1Put } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
 import { clientFetchWishSmartTaskImportedTasksPersistedV1Put } from "@/lib/client-fetch-wish-smart-task-imported-tasks-persisted-v1-api";
+import { clientFetchWishAppAccessGateV1Delete } from "@/lib/client-fetch-wish-app-access-gate-v1-api";
 import { clientFetchWishAppRuntimeFlagsV1Get } from "@/lib/client-fetch-wish-app-runtime-flags-v1-api";
 import {
   createEmptyWishKanbanBoard,
@@ -159,6 +160,7 @@ export function WishKanbanBoardRootClient() {
   const [boardSearchResultsModalOpen, setBoardSearchResultsModalOpen] = useState(false);
   const [serverViewOnlyMode, setServerViewOnlyMode] = useState(false);
   const [boardImportRequiresApiKey, setBoardImportRequiresApiKey] = useState(false);
+  const [accessGateRequired, setAccessGateRequired] = useState(false);
   const [previewViewOnlyMode, setPreviewViewOnlyMode] = useState(() =>
     wishViewOnlyModeReadSessionPreviewToggleFromStorageV1(),
   );
@@ -191,6 +193,7 @@ export function WishKanbanBoardRootClient() {
         const serverFlag = flags.ok ? flags.viewOnlyMode : false;
         setServerViewOnlyMode(serverFlag);
         setBoardImportRequiresApiKey(flags.ok ? flags.boardImportRequiresApiKey : false);
+        setAccessGateRequired(flags.ok ? flags.accessGateRequired : false);
         const effectiveViewOnly =
           serverFlag || wishViewOnlyModeReadSessionPreviewToggleFromStorageV1();
 
@@ -764,6 +767,21 @@ export function WishKanbanBoardRootClient() {
             onImportBoard={(next) => setBoard(next)}
             boardImportRequiresApiKey={boardImportRequiresApiKey}
           />
+          {accessGateRequired ? (
+            <button
+              type="button"
+              title="Encerrar sessão de acesso deste navegador"
+              className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
+              onClick={() => {
+                void (async () => {
+                  await clientFetchWishAppAccessGateV1Delete();
+                  window.location.href = "/entrar";
+                })();
+              }}
+            >
+              Sair
+            </button>
+          ) : null}
           {!serverViewOnlyMode ? (
             <button
               type="button"

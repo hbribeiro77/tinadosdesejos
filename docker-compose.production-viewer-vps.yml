@@ -1,6 +1,7 @@
 # Viewer em produção na VPS (modo visualização).
 # Na pasta do projeto (ou clone na VPS):
-#   1. Crie .env.production com WISH_VIEW_ONLY_MODE=1 e WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=...
+#   1. Crie .env.production com WISH_VIEW_ONLY_MODE=1, WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=...
+#      e WISH_APP_ACCESS_SECRET=... (portão /entrar; diferente da chave de import)
 #   2. mkdir -p data
 #   3. docker compose -f docker-compose.production-viewer-vps.yml up -d --build
 
