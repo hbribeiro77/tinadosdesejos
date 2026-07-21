@@ -77,7 +77,8 @@ export async function GET(request: Request) {
   const pathname = new URL(assetUrl).pathname;
   const contentType = raw.contentType ?? guessContentTypeFromPathname(pathname);
 
-  return new NextResponse(raw.body, {
+  // Uint8Array: BodyInit do Next/undici não aceita Buffer tipado do Node em alguns TS.
+  return new NextResponse(new Uint8Array(raw.body), {
     status: 200,
     headers: {
       "Content-Type": contentType,

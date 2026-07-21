@@ -33,7 +33,8 @@ export async function GET(_request: Request, context: RouteContext) {
 
   try {
     const body = await readFile(filePath);
-    return new NextResponse(body, {
+    // Uint8Array: BodyInit do Next/undici não aceita Buffer tipado do Node em alguns TS.
+    return new NextResponse(new Uint8Array(body), {
       status: 200,
       headers: {
         "Content-Type": guessContentTypeFromFileName(assetFileName),
