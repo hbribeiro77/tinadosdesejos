@@ -705,9 +705,7 @@ export function WishKanbanBoardRootClient() {
         >
           <span className="font-medium">
             Modo visualização
-            {serverViewOnlyMode
-              ? " (servidor — WISH_VIEW_ONLY_MODE)"
-              : " (prévia local — só UI)"}
+            {serverViewOnlyMode ? null : " (prévia local — só UI)"}
           </span>
           <span className="text-xs opacity-90">
             Busca, descrição e Importar/Exportar JSON liberados; sem editar o quadro nem GitLab.
