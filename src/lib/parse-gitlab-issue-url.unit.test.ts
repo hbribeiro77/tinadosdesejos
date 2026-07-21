@@ -30,6 +30,14 @@ describe("parseGitLabIssueUrl", () => {
     expect(parsed.iid).toBe(1);
   });
 
+  it("aceita URL com work_items (GitLab UI recente)", () => {
+    const parsed = parseGitLabIssueUrl(
+      "https://gitlab.defpub.local/portal-da-defensoria/portal-defensoria-gateway/-/work_items/3688",
+    );
+    expect(parsed.projectPath).toBe("portal-da-defensoria/portal-defensoria-gateway");
+    expect(parsed.iid).toBe(3688);
+  });
+
   it("falha para URL sem padrão de issue", () => {
     expect(() => parseGitLabIssueUrl("https://gitlab.intra/a/b/-/merge_requests/1")).toThrow(
       GitLabIssueUrlParseError,

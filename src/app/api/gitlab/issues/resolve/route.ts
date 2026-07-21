@@ -10,6 +10,8 @@ import {
   mergeGitLabIssueSummaryDtoLabelsWithProjectLabelColorLookup,
   wishGitlabRestFetchProjectLabelNameToHexColorMap,
 } from "@/lib/wish-gitlab-rest-fetch-project-label-name-to-hex-color-map-for-resolve-enrichment";
+import { enrichGitLabIssueSummaryDtoWithMirroredDescriptionUploadAssetsOnServerV1 } from "@/lib/mirror-gitlab-issue-description-upload-assets-to-local-data-directory-and-rewrite-markdown-on-server-v1";
+import { wishViewOnlyModeRejectIfEnabledAsNextResponseV1 } from "@/lib/wish-view-only-mode-json-error-response-v1";
 
 function json(body: GitLabIssueResolveResponse, init?: { status?: number }) {
   return NextResponse.json(body, { status: init?.status ?? (body.ok ? 200 : 400) });
@@ -36,10 +38,14 @@ function buildMockSummary(parsed: ReturnType<typeof parseGitLabIssueUrl>): GitLa
     assignees: [{ name: "Mock User", username: "mock.user", avatarUrl: null }],
     createdAt: now,
     updatedAt: now,
+    gitlabDescriptionMarkdown: `[MOCK] Descrição da issue **#${parsed.iid}** no projeto \`${parsed.projectPath}\`.\n\nAtualize o card para sincronizar a descrição real do GitLab.`,
   };
 }
 
 export async function POST(request: Request) {
+  const viewOnlyRejected = wishViewOnlyModeRejectIfEnabledAsNextResponseV1();
+  if (viewOnlyRejected) return viewOnlyRejected;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -183,6 +189,12 @@ export async function POST(request: Request) {
     });
     data = mergeGitLabIssueSummaryDtoLabelsWithProjectLabelColorLookup(data, colorByName);
   }
+
+  data = await enrichGitLabIssueSummaryDtoWithMirroredDescriptionUploadAssetsOnServerV1(data, {
+    gitlabBaseUrl,
+    token: gitlabToken,
+    tlsInsecureDev,
+  });
 
   return json({ ok: true, data });
 }

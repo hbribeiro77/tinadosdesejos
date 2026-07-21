@@ -83,11 +83,38 @@ export function WishBoardModalGitlabIssueGutMatrixScoringFormClient(props: WishB
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-xl border border-black/10 bg-white text-zinc-900 shadow-lg dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50">
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-black/5 p-5 dark:border-white/10">
-          <div>
-            <div className="text-base font-semibold">Matriz GUT</div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              <span className="font-bold text-zinc-600 dark:text-zinc-300">Nota final = G×U×T</span>
-              <WishMatrixScoringModalInlineParentheticalHintAsInfoIconSpanClient hint="cada eixo de 1 a 5" />
+          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-4">
+            <div className="flex shrink-0 flex-col">
+              <div className="text-base font-semibold">Matriz GUT</div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="font-bold text-zinc-600 dark:text-zinc-300">Nota final = G×U×T</span>
+                <WishMatrixScoringModalInlineParentheticalHintAsInfoIconSpanClient hint="cada eixo de 1 a 5" />
+              </div>
+            </div>
+            <div className="hidden h-auto min-h-[2.5rem] w-px shrink-0 bg-black/10 sm:block dark:bg-white/15" aria-hidden />
+            <div className="h-px w-full shrink-0 bg-black/10 sm:hidden dark:bg-white/15" aria-hidden />
+            <div className="min-w-0 flex-1 pt-0.5 sm:self-start">
+              <a
+                className="group inline max-w-full rounded-md text-left align-top outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-amber-500 dark:ring-offset-zinc-950"
+                href={props.webUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Abrir issue no GitLab (nova aba)"
+              >
+                <span className="text-lg font-bold leading-snug text-zinc-900 underline-offset-[3px] break-words group-hover:underline dark:text-zinc-50">
+                  {props.issueTitle}
+                </span>
+                <span
+                  className="ms-1.5 inline-flex shrink-0 translate-y-px align-middle rounded border border-black/15 bg-zinc-50 p-1 text-zinc-600 dark:border-white/15 dark:bg-zinc-900/80 dark:text-zinc-400"
+                  aria-hidden
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </span>
+              </a>
             </div>
           </div>
           <button
@@ -103,22 +130,7 @@ export function WishBoardModalGitlabIssueGutMatrixScoringFormClient(props: WishB
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-5">
-          <div className="text-sm font-medium leading-snug text-zinc-900 dark:text-zinc-100">{props.issueTitle}</div>
-          <a
-            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300"
-            href={props.webUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Abrir issue no GitLab
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-              <polyline points="15 3 21 3 21 9" />
-              <line x1="10" y1="14" x2="21" y2="3" />
-            </svg>
-          </a>
-
-          <div className="mt-5 space-y-6">
+          <div className="space-y-6">
             {GITLAB_GUT_AXIS_DEFINITIONS_ORDERED_FOR_TABLE_PT_BR_V1.map((axis) => (
               <fieldset key={axis.key} className="space-y-2 border-0 p-0">
                 <legend className="w-full min-w-0 border-0 p-0">

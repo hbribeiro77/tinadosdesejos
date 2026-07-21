@@ -18,7 +18,7 @@ import { WishBoardModalAddGitlabIssueUrl } from "@/components/board/wish-board-m
 import { WishKanbanBoardToolbarExportImportBoardJson } from "@/components/board/wish-kanban-board-toolbar-export-import-board-json";
 import { WishKanbanColumnWithSortableCards } from "@/components/board/wish-kanban-column-with-sortable-cards";
 import { clientFetchGitLabIssueResolve } from "@/lib/client-fetch-gitlab-issue-resolve-api";
-import type { WishKanbanCard } from "@/lib/wish-kanban-board-domain-types";
+import type { WishKanbanBoard, WishKanbanCard } from "@/lib/wish-kanban-board-domain-types";
 import {
   applyWishKanbanBoardCrossColumnMoveToIndex,
   applyWishKanbanBoardDragEnd,
@@ -46,11 +46,19 @@ import {
   wishKanbanBoardCountCardsWithResolvableGitLabIssueUrl,
   wishKanbanBoardGroupCardIdsByTrimmedIssueUrlFromBoard,
 } from "@/lib/wish-kanban-board-group-card-ids-by-trimmed-issue-url-from-board";
+import { clientFetchWishKanbanBoardPersistedV1Put } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
+import { clientFetchWishSmartTaskImportedTasksPersistedV1Put } from "@/lib/client-fetch-wish-smart-task-imported-tasks-persisted-v1-api";
+import { clientFetchWishAppRuntimeFlagsV1Get } from "@/lib/client-fetch-wish-app-runtime-flags-v1-api";
 import {
   createEmptyWishKanbanBoard,
   readWishKanbanBoardFromLocalStorage,
-  writeWishKanbanBoardToLocalStorage,
 } from "@/lib/wish-board-localstorage-serialization";
+import { hydrateWishKanbanBoardAndSmartTaskFromServerWithLocalStorageMigrationV1 } from "@/lib/hydrate-wish-kanban-board-and-smart-task-from-server-with-local-storage-migration-v1";
+import { readWishSmartTaskImportedTasksFromLocalStorage } from "@/lib/wish-smart-task-imported-tasks-local-storage-serialization";
+import {
+  wishViewOnlyModeReadSessionPreviewToggleFromStorageV1,
+  wishViewOnlyModeWriteSessionPreviewToggleToStorageV1,
+} from "@/lib/wish-view-only-mode-session-preview-toggle-storage-v1";
 import {
   WISH_GITLAB_TRIAGE_DND_KIND,
   type WishGitlabTriageDrawerDnDPayload,
@@ -63,10 +71,6 @@ import {
   isSmartTaskKanbanIssueUrl,
   parseSmartTaskIdFromKanbanIssueUrl,
 } from "@/lib/smart-task-kanban-issue-url-build-and-parse-task-id";
-import {
-  readWishSmartTaskImportedTasksFromLocalStorage,
-  writeWishSmartTaskImportedTasksToLocalStorage,
-} from "@/lib/wish-smart-task-imported-tasks-local-storage-serialization";
 import { mergeSmartTaskNormalizedTaskArrayByIdPreferIncoming } from "@/lib/merge-smart-task-normalized-task-array-by-id-prefer-incoming";
 import { parseWishSmartTaskHandoffHashFromWindowLocationV1 } from "@/lib/wish-smart-task-parse-handoff-hash-from-window-location-v1";
 import { wishSmartTaskReadBrowserLocationHashFragmentForHandoffOrEmptyV1 } from "@/lib/wish-smart-task-read-browser-location-hash-fragment-for-handoff-or-empty-v1";
@@ -81,6 +85,9 @@ import {
   WishKanbanBoardDndDragOverlayVisualPreviewsLayer,
   type WishKanbanBoardDndActiveDragOverlayModel,
 } from "@/components/board/wish-kanban-board-dnd-drag-overlay-visual-previews-layer";
+import { WishKanbanBoardSearchInputWithLabelAutocompleteDropdownClient } from "@/components/board/wish-kanban-board-search-input-with-label-autocomplete-dropdown-client";
+import { WishKanbanBoardModalSearchResultsMatchingIssuesListClient } from "@/components/board/wish-kanban-board-modal-search-results-matching-issues-list-client";
+import { wishKanbanBoardFocusCardInDomScrollColumnAndCardWithPulseHighlightV1 } from "@/lib/wish-kanban-board-focus-card-in-dom-scroll-column-and-card-with-pulse-highlight-v1";
 import { useWishTinaDialog } from "@/components/dialog/wish-tina-dialog-context-provider-client";
 
 type AddIssueModalState =
@@ -109,14 +116,19 @@ function stripWishSmartTaskHandoffParamsFromWindowLocationBarV1() {
   window.history.replaceState(null, "", `${pathname}${nextSearch}${nextHash}`);
 }
 
+const WISH_SERVER_PERSIST_DEBOUNCE_MS = 450;
+
 export function WishKanbanBoardRootClient() {
   const tina = useWishTinaDialog();
-  const [board, setBoard] = useState<ReturnType<typeof readWishKanbanBoardFromLocalStorage>>(null);
+  const tinaRef = useRef(tina);
+  tinaRef.current = tina;
+  const [board, setBoard] = useState<WishKanbanBoard | null>(null);
+  const [boardHydratedFromServer, setBoardHydratedFromServer] = useState(false);
+  const [boardHydrateErrorMessage, setBoardHydrateErrorMessage] = useState<string | null>(null);
   const [addIssueModal, setAddIssueModal] = useState<AddIssueModalState>({ open: false });
   const [triageDrawerOpen, setTriageDrawerOpen] = useState(false);
   const [triageIssues, setTriageIssues] = useState<GitLabIssueSummaryDto[]>([]);
   const [smartTaskTasks, setSmartTaskTasks] = useState<SmartTaskNormalizedTask[]>([]);
-  const skipFirstSmartTaskPersistToLocalStorageRef = useRef(true);
   const triageDropFollowUpRef = useRef<{ cardId: string; issueUrl: string } | null>(null);
   /** Ref da faixa horizontal real (`mainRef`) — scroll até o fim ao criar coluna. */
   const boardHorizontalScrollRef = useRef<WishKanbanBoardDualSyncedHorizontalScrollbarsHandle>(null);
@@ -144,12 +156,19 @@ export function WishKanbanBoardRootClient() {
   } | null>(null);
   const [boardBulkRefreshInProgress, setBoardBulkRefreshInProgress] = useState(false);
   const [boardSearchQuery, setBoardSearchQuery] = useState("");
+  const [boardSearchResultsModalOpen, setBoardSearchResultsModalOpen] = useState(false);
+  const [serverViewOnlyMode, setServerViewOnlyMode] = useState(false);
+  const [boardImportRequiresApiKey, setBoardImportRequiresApiKey] = useState(false);
+  const [previewViewOnlyMode, setPreviewViewOnlyMode] = useState(() =>
+    wishViewOnlyModeReadSessionPreviewToggleFromStorageV1(),
+  );
+  const viewOnly = serverViewOnlyMode || previewViewOnlyMode;
+  const viewOnlyRef = useRef(viewOnly);
+  viewOnlyRef.current = viewOnly;
 
   const applySmartTaskHandoffNormalizedTasks = useCallback((incoming: SmartTaskNormalizedTask[]) => {
-    const stored = readWishSmartTaskImportedTasksFromLocalStorage() ?? [];
-    const nextTasks = mergeSmartTaskNormalizedTaskArrayByIdPreferIncoming(stored, incoming);
-    writeWishSmartTaskImportedTasksToLocalStorage(nextTasks);
-    setSmartTaskTasks(nextTasks);
+    if (viewOnlyRef.current) return;
+    setSmartTaskTasks((prev) => mergeSmartTaskNormalizedTaskArrayByIdPreferIncoming(prev, incoming));
     setTriageDrawerOpen(true);
     if (
       typeof window !== "undefined" &&
@@ -159,44 +178,124 @@ export function WishKanbanBoardRootClient() {
     }
   }, []);
 
-  useEffect(() => {
-    setBoard(readWishKanbanBoardFromLocalStorage() ?? createEmptyWishKanbanBoard());
+  const runBoardHydrationFromServerV1 = useCallback(() => {
+    setBoardHydrateErrorMessage(null);
+    setBoard(null);
+    setBoardHydratedFromServer(false);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const flags = await clientFetchWishAppRuntimeFlagsV1Get();
+        if (cancelled) return;
+        const serverFlag = flags.ok ? flags.viewOnlyMode : false;
+        setServerViewOnlyMode(serverFlag);
+        setBoardImportRequiresApiKey(flags.ok ? flags.boardImportRequiresApiKey : false);
+        const effectiveViewOnly =
+          serverFlag || wishViewOnlyModeReadSessionPreviewToggleFromStorageV1();
+
+        const hydrated = await hydrateWishKanbanBoardAndSmartTaskFromServerWithLocalStorageMigrationV1();
+        if (cancelled) return;
+
+        let smartTasks = hydrated.smartTaskTasks;
+
+        if (!effectiveViewOnly && typeof window !== "undefined") {
+          const hash = wishSmartTaskReadBrowserLocationHashFragmentForHandoffOrEmptyV1();
+          const search = window.location.search ?? "";
+          const hasHandoffMarker = hash.includes("st-handoff") || search.includes("st-handoff");
+          if (hasHandoffMarker) {
+            const parsed = parseWishSmartTaskHandoffHashFromWindowLocationV1(hash, search);
+            if (parsed.ok) {
+              smartTasks = mergeSmartTaskNormalizedTaskArrayByIdPreferIncoming(smartTasks, parsed.tasks);
+              stripWishSmartTaskHandoffParamsFromWindowLocationBarV1();
+              setTriageDrawerOpen(true);
+            } else if (process.env.NODE_ENV === "development") {
+              console.warn("[Tina / SmartTask handoff] Falha ao interpretar URL:", parsed.message);
+            }
+          }
+        } else if (effectiveViewOnly && typeof window !== "undefined") {
+          const hash = wishSmartTaskReadBrowserLocationHashFragmentForHandoffOrEmptyV1();
+          const search = window.location.search ?? "";
+          if (hash.includes("st-handoff") || search.includes("st-handoff")) {
+            stripWishSmartTaskHandoffParamsFromWindowLocationBarV1();
+          }
+        }
+
+        setBoard(hydrated.board);
+        setSmartTaskTasks(smartTasks);
+
+        if (hydrated.errors.length > 0) {
+          const msg = hydrated.errors.join("\n");
+          setBoardHydrateErrorMessage(msg);
+          void tinaRef.current.alert(
+            `Alguns dados não foram sincronizados com o servidor:\n\n${msg}`,
+          );
+        }
+      } catch (cause) {
+        if (cancelled) return;
+        console.error("[Tina] Falha ao hidratar quadro:", cause);
+        const fallbackBoard = readWishKanbanBoardFromLocalStorage() ?? createEmptyWishKanbanBoard();
+        const fallbackTasks = readWishSmartTaskImportedTasksFromLocalStorage() ?? [];
+        setBoard(fallbackBoard);
+        setSmartTaskTasks(fallbackTasks);
+        const msg =
+          cause instanceof Error
+            ? cause.message
+            : "Não foi possível carregar o quadro do servidor. Usando cópia local ou quadro vazio.";
+        setBoardHydrateErrorMessage(msg);
+        void tinaRef.current.alert(msg);
+      } finally {
+        if (!cancelled) {
+          setBoard((current) => current ?? readWishKanbanBoardFromLocalStorage() ?? createEmptyWishKanbanBoard());
+          setBoardHydratedFromServer(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
-    if (!board) return;
-    writeWishKanbanBoardToLocalStorage(board);
-  }, [board]);
+    const cancel = runBoardHydrationFromServerV1();
+    return cancel;
+  }, [runBoardHydrationFromServerV1]);
 
-  /**
-   * Hidratação SmartTask + handoff por `#st-handoff=` ou `?st-handoff=` na mesma corrida.
-   * `useLayoutEffect` corre antes da pintura; evita perder o fragmento; em dev avisa se o payload falhar.
-   */
-  useLayoutEffect(() => {
-    if (typeof window === "undefined") return;
+  useEffect(() => {
+    if (!board || !boardHydratedFromServer || viewOnly) return;
+    const timer = window.setTimeout(() => {
+      void clientFetchWishKanbanBoardPersistedV1Put(board).then((res) => {
+        if (!res.ok) {
+          console.error("[Tina] Falha ao salvar quadro no servidor:", res.message);
+        }
+      });
+    }, WISH_SERVER_PERSIST_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [board, boardHydratedFromServer, viewOnly]);
 
-    const stored = readWishSmartTaskImportedTasksFromLocalStorage() ?? [];
-    const hash = wishSmartTaskReadBrowserLocationHashFragmentForHandoffOrEmptyV1();
-    const search = window.location.search ?? "";
-    const hasHandoffMarker = hash.includes("st-handoff") || search.includes("st-handoff");
-    if (hasHandoffMarker) {
-      const parsed = parseWishSmartTaskHandoffHashFromWindowLocationV1(hash, search);
-      if (parsed.ok) {
-        applySmartTaskHandoffNormalizedTasks(parsed.tasks);
-        return;
-      }
-      if (process.env.NODE_ENV === "development") {
-        console.warn("[Tina / SmartTask handoff] Falha ao interpretar URL:", parsed.message);
-      }
-    }
-    setSmartTaskTasks(stored);
-  }, [applySmartTaskHandoffNormalizedTasks]);
+  useEffect(() => {
+    if (!boardHydratedFromServer || viewOnly) return;
+    const timer = window.setTimeout(() => {
+      void clientFetchWishSmartTaskImportedTasksPersistedV1Put(smartTaskTasks).then((res) => {
+        if (!res.ok) {
+          console.error("[Tina] Falha ao salvar SmartTask no servidor:", res.message);
+        }
+      });
+    }, WISH_SERVER_PERSIST_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [smartTaskTasks, boardHydratedFromServer, viewOnly]);
+
+  useEffect(() => {
+    if (viewOnly) setTriageDrawerOpen(false);
+  }, [viewOnly]);
 
   /**
    * Fallback quando o fragmento URL se perde: SmartTask envia o mesmo payload via `postMessage`.
-   * `useLayoutEffect` regista o listener cedo (antes de `useEffect`), para não perder mensagens imediatas.
+   * Só após hidratar do servidor para não ser sobrescrito pela carga inicial.
    */
   useLayoutEffect(() => {
+    if (!boardHydratedFromServer || viewOnly) return;
     function onMessage(e: MessageEvent) {
       if (!wishSmartTaskIsHttpOriginAllowedForPostMessageHandoffFromSmarttaskV1(e.origin)) return;
       const data = e.data;
@@ -215,15 +314,7 @@ export function WishKanbanBoardRootClient() {
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [applySmartTaskHandoffNormalizedTasks]);
-
-  useEffect(() => {
-    if (skipFirstSmartTaskPersistToLocalStorageRef.current) {
-      skipFirstSmartTaskPersistToLocalStorageRef.current = false;
-      return;
-    }
-    writeWishSmartTaskImportedTasksToLocalStorage(smartTaskTasks);
-  }, [smartTaskTasks]);
+  }, [boardHydratedFromServer, applySmartTaskHandoffNormalizedTasks, viewOnly]);
 
   /** Gaveta alta empurrava o documento; ao fechar, volta o scroll da página para o topo. */
   useLayoutEffect(() => {
@@ -291,6 +382,34 @@ export function WishKanbanBoardRootClient() {
       ? undefined
       : (cardId: string) => !searchMatchingCardIds.has(cardId);
 
+  useEffect(() => {
+    if (!boardSearchQuery.trim()) {
+      setBoardSearchResultsModalOpen(false);
+    }
+  }, [boardSearchQuery]);
+
+  const navigateToBoardSearchResultCard = useCallback(
+    (cardId: string, columnId: string) => {
+      setBoardSearchResultsModalOpen(false);
+
+      const needsExpand = Boolean(board?.columnsById[columnId]?.collapsed);
+
+      if (needsExpand) {
+        setBoard((prev) =>
+          prev ? wishKanbanBoardSetColumnCollapsed(prev, columnId, false) : prev,
+        );
+      }
+
+      window.setTimeout(
+        () => {
+          wishKanbanBoardFocusCardInDomScrollColumnAndCardWithPulseHighlightV1(cardId, columnId);
+        },
+        needsExpand ? 360 : 0,
+      );
+    },
+    [board],
+  );
+
   const mergeGitlabSnapshotAfterDvitu = useCallback((cardId: string, data: GitLabIssueSummaryDto) => {
     setBoard((prev) => (prev ? wishKanbanBoardUpsertCardSnapshot(prev, cardId, data) : prev));
   }, []);
@@ -301,14 +420,24 @@ export function WishKanbanBoardRootClient() {
 
   if (!board) {
     return (
-      <div className="flex min-h-[50vh] w-full items-center justify-center text-sm text-zinc-600 dark:text-zinc-300">
-        Carregando quadro...
+      <div className="flex min-h-[50vh] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-zinc-600 dark:text-zinc-300">
+        <p>Carregando quadro...</p>
+        {boardHydrateErrorMessage ? (
+          <p className="max-w-md text-xs text-amber-800 dark:text-amber-200">{boardHydrateErrorMessage}</p>
+        ) : null}
+        <button
+          type="button"
+          className="rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
+          onClick={() => runBoardHydrationFromServerV1()}
+        >
+          Tentar de novo
+        </button>
       </div>
     );
   }
 
   function onDragStart(event: DragStartEvent) {
-    if (!board) return;
+    if (!board || viewOnly) return;
 
     const activeId = String(event.active.id);
     const activeData = event.active.data.current;
@@ -339,7 +468,7 @@ export function WishKanbanBoardRootClient() {
   }
 
   function onDragOver(event: DragOverEvent) {
-    if (!board) return;
+    if (!board || viewOnly) return;
     const over = event.over;
 
     const overColumnId = over ? resolveWishKanbanOverColumnId(board, String(over.id)) : null;
@@ -411,6 +540,10 @@ export function WishKanbanBoardRootClient() {
   }
 
   function onDragEnd(event: DragEndEvent) {
+    if (viewOnly) {
+      clearDnDUiState();
+      return;
+    }
     // Captura antes do clear: é a posição exata que o placeholder mostrou ao usuário.
     const pendingCrossInsert = dragCrossColumnInsert;
     clearDnDUiState();
@@ -562,21 +695,42 @@ export function WishKanbanBoardRootClient() {
   const bulkRefreshDisabled = boardBulkRefreshInProgress || boardCardCountForBulk === 0;
   const boardIssueCountOnBoard = Object.keys(board.cardsById).length;
   const filteredIssueCount = searchMatchingCardIds ? searchMatchingCardIds.size : boardIssueCountOnBoard;
-  const isSearchActive = boardSearchQuery.trim().length > 0;
 
   return (
     <div className="flex min-h-dvh w-full flex-col bg-zinc-100 dark:bg-zinc-950">
+      {viewOnly ? (
+        <div
+          className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-700/50 dark:bg-amber-950/50 dark:text-amber-50 sm:px-4"
+          role="status"
+        >
+          <span className="font-medium">
+            Modo visualização
+            {serverViewOnlyMode
+              ? " (servidor — WISH_VIEW_ONLY_MODE)"
+              : " (prévia local — só UI)"}
+          </span>
+          <span className="text-xs opacity-90">
+            Busca, descrição e Importar/Exportar JSON liberados; sem editar o quadro nem GitLab.
+          </span>
+        </div>
+      ) : null}
       <header className="flex shrink-0 flex-col gap-3 px-3 pb-3 pt-4 sm:px-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <input
-              className="min-w-0 flex-1 truncate border-b border-transparent bg-transparent text-3xl font-bold tracking-tight text-zinc-950 outline-none transition-colors focus:border-black/10 dark:text-zinc-50 dark:focus:border-white/10"
-              value={board.title}
-              onChange={(e) => setBoard((prev) => (prev ? wishKanbanBoardRenameBoard(prev, e.target.value) : prev))}
-              aria-label="Título do quadro"
-              placeholder="Nome do quadro"
-            />
+            {viewOnly ? (
+              <h1 className="min-w-0 flex-1 truncate text-3xl font-bold tracking-tight text-zinc-950 dark:text-zinc-50">
+                {board.title.trim() || "Quadro"}
+              </h1>
+            ) : (
+              <input
+                className="min-w-0 flex-1 truncate border-b border-transparent bg-transparent text-3xl font-bold tracking-tight text-zinc-950 outline-none transition-colors focus:border-black/10 dark:text-zinc-50 dark:focus:border-white/10"
+                value={board.title}
+                onChange={(e) => setBoard((prev) => (prev ? wishKanbanBoardRenameBoard(prev, e.target.value) : prev))}
+                aria-label="Título do quadro"
+                placeholder="Nome do quadro"
+              />
+            )}
             <span
               className="inline-flex shrink-0 items-center rounded-full border border-black/10 bg-white px-2.5 py-1 text-sm font-semibold tabular-nums text-zinc-700 shadow-sm dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-200"
               title="Total de issues (cards) no quadro"
@@ -584,71 +738,25 @@ export function WishKanbanBoardRootClient() {
             >
               {boardIssueCountOnBoard}
             </span>
-            <div className="relative min-w-[220px] flex-1 sm:min-w-[280px] md:max-w-md">
-              <span className="sr-only">Buscar issues no quadro</span>
-              <svg
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <path d="m21 21-4.35-4.35"></path>
-              </svg>
-              <input
-                type="search"
-                enterKeyHint="search"
-                autoComplete="off"
-                className="w-full rounded-lg border border-black/10 bg-white py-2 pl-9 pr-20 text-sm text-zinc-900 shadow-sm outline-none ring-violet-400/40 placeholder:text-zinc-400 focus:border-violet-400/60 focus:ring-2 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:placeholder:text-zinc-500 dark:focus:border-violet-500/50"
-                placeholder="Buscar por título, #iid, URL, projeto, label…"
-                value={boardSearchQuery}
-                onChange={(e) => setBoardSearchQuery(e.target.value)}
-                aria-label="Buscar issues no quadro"
-              />
-              <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                {isSearchActive ? (
-                  <span
-                    className="inline-flex items-center rounded-md border border-violet-300/60 bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800 dark:border-violet-500/50 dark:bg-violet-950/50 dark:text-violet-200"
-                    title="Issues encontradas pelo filtro"
-                    aria-label={`${filteredIssueCount} issue${filteredIssueCount === 1 ? "" : "s"} encontradas pelo filtro`}
-                  >
-                    {filteredIssueCount}
-                  </span>
-                ) : null}
-                {isSearchActive ? (
-                  <button
-                    type="button"
-                    className="rounded-md p-1 text-zinc-400 hover:bg-black/5 hover:text-zinc-700 dark:hover:bg-white/10 dark:hover:text-zinc-200"
-                    aria-label="Limpar busca"
-                    onClick={() => setBoardSearchQuery("")}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M18 6 6 18"></path>
-                      <path d="m6 6 12 12"></path>
-                    </svg>
-                  </button>
-                ) : null}
-              </div>
-            </div>
+            <WishKanbanBoardSearchInputWithLabelAutocompleteDropdownClient
+              board={board}
+              value={boardSearchQuery}
+              onValueChange={setBoardSearchQuery}
+              filteredIssueCount={filteredIssueCount}
+              onOpenSearchResults={
+                searchMatchingCardIds !== null ? () => setBoardSearchResultsModalOpen(true) : undefined
+              }
+            />
           </div>
           <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
-            Organize melhorias por área do sistema. Cada card é uma issue do GitLab (cole a URL). Use o ícone{" "}
-            <span className="font-mono">⋮⋮</span> para reordenar colunas.
+            {viewOnly
+              ? "Visualização do quadro. Use Importar JSON para atualizar o snapshot neste servidor."
+              : (
+                <>
+                  Organize melhorias por área do sistema. Cada card é uma issue do GitLab (cole a URL). Use o ícone{" "}
+                  <span className="font-mono">⋮⋮</span> para reordenar colunas.
+                </>
+              )}
           </p>
         </div>
 
@@ -656,73 +764,105 @@ export function WishKanbanBoardRootClient() {
           <WishKanbanBoardToolbarExportImportBoardJson
             board={board}
             onImportBoard={(next) => setBoard(next)}
+            boardImportRequiresApiKey={boardImportRequiresApiKey}
           />
-          <button
-            type="button"
-            disabled={bulkRefreshDisabled}
-            aria-busy={boardBulkRefreshInProgress}
-            title="Atualizar dados de todas as issues do quadro no GitLab"
-            className={[
-              "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition-colors",
-              bulkRefreshDisabled
-                ? "cursor-not-allowed border-black/10 bg-zinc-100 text-zinc-400 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-600"
-                : "border-black/10 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900",
-            ].join(" ")}
-            onClick={() => void refreshAllIssuesOnBoard()}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={boardBulkRefreshInProgress ? "animate-spin" : ""}
-              aria-hidden
+          {!serverViewOnlyMode ? (
+            <button
+              type="button"
+              aria-pressed={previewViewOnlyMode}
+              title={
+                previewViewOnlyMode
+                  ? "Desligar prévia de produção (volta o editor completo)"
+                  : "Prévia do modo visualização de produção (só UI; APIs continuam abertas)"
+              }
+              className={[
+                "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition-colors",
+                previewViewOnlyMode
+                  ? "border-amber-400/80 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-600/60 dark:bg-amber-950/50 dark:text-amber-50 dark:hover:bg-amber-900/40"
+                  : "border-black/10 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900",
+              ].join(" ")}
+              onClick={() => {
+                setPreviewViewOnlyMode((prev) => {
+                  const next = !prev;
+                  wishViewOnlyModeWriteSessionPreviewToggleToStorageV1(next);
+                  return next;
+                });
+              }}
             >
-              <path d="M21 2v6h-6"></path>
-              <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-              <path d="M3 22v-6h6"></path>
-              <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-            </svg>
-            <span className="hidden sm:inline">
-              {boardBulkRefreshInProgress ? "Atualizando…" : "Atualizar todas"}
-            </span>
-            <span className="sm:hidden">{boardBulkRefreshInProgress ? "…" : "Todas"}</span>
-          </button>
-          <div className="mx-1 hidden h-6 w-px bg-black/10 sm:block dark:bg-white/10"></div>
-          <button
-            type="button"
-            className={[
-              "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition-colors",
-              triageDrawerOpen
-                ? "border-violet-400/70 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-600/60 dark:bg-violet-950/60 dark:text-violet-50 dark:hover:bg-violet-900/50"
-                : "border-black/10 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900",
-            ].join(" ")}
-            onClick={() => setTriageDrawerOpen((v) => !v)}
-            aria-expanded={triageDrawerOpen}
-            aria-controls="wish-gitlab-triage-drawer-panel"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
-            <span className="hidden sm:inline">Triagem</span> GitLab
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-            onClick={() => {
-              pendingScrollHorizontalToMaximumRef.current = true;
-              pendingFocusNewColumnTitleRef.current = true;
-              setBoard((prev) => {
-                if (!prev) return prev;
-                return wishKanbanBoardAddColumn(prev).board;
-              });
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-            Nova coluna
-          </button>
+              <span className="hidden sm:inline">Prévia produção</span>
+              <span className="sm:hidden">Prévia</span>
+            </button>
+          ) : null}
+          {!viewOnly ? (
+            <>
+              <button
+                type="button"
+                disabled={bulkRefreshDisabled}
+                aria-busy={boardBulkRefreshInProgress}
+                title="Atualizar dados de todas as issues do quadro no GitLab"
+                className={[
+                  "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition-colors",
+                  bulkRefreshDisabled
+                    ? "cursor-not-allowed border-black/10 bg-zinc-100 text-zinc-400 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-600"
+                    : "border-black/10 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900",
+                ].join(" ")}
+                onClick={() => void refreshAllIssuesOnBoard()}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={boardBulkRefreshInProgress ? "animate-spin" : ""}
+                  aria-hidden
+                >
+                  <path d="M21 2v6h-6"></path>
+                  <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
+                  <path d="M3 22v-6h6"></path>
+                  <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
+                </svg>
+                <span className="hidden sm:inline">
+                  {boardBulkRefreshInProgress ? "Atualizando…" : "Atualizar todas"}
+                </span>
+                <span className="sm:hidden">{boardBulkRefreshInProgress ? "…" : "Todas"}</span>
+              </button>
+              <div className="mx-1 hidden h-6 w-px bg-black/10 sm:block dark:bg-white/10"></div>
+              <button
+                type="button"
+                className={[
+                  "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium shadow-sm transition-colors",
+                  triageDrawerOpen
+                    ? "border-violet-400/70 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-600/60 dark:bg-violet-950/60 dark:text-violet-50 dark:hover:bg-violet-900/50"
+                    : "border-black/10 bg-white text-zinc-900 hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900",
+                ].join(" ")}
+                onClick={() => setTriageDrawerOpen((v) => !v)}
+                aria-expanded={triageDrawerOpen}
+                aria-controls="wish-gitlab-triage-drawer-panel"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
+                <span className="hidden sm:inline">Triagem</span> GitLab
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                onClick={() => {
+                  pendingScrollHorizontalToMaximumRef.current = true;
+                  pendingFocusNewColumnTitleRef.current = true;
+                  setBoard((prev) => {
+                    if (!prev) return prev;
+                    return wishKanbanBoardAddColumn(prev).board;
+                  });
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Nova coluna
+              </button>
+            </>
+          ) : null}
         </div>
         </div>
 
@@ -772,32 +912,35 @@ export function WishKanbanBoardRootClient() {
                           )
                         }
                         isCardMutedByBoardSearch={isCardMutedByBoardSearchFn}
+                        viewOnly={viewOnly}
                       />
                     ))}
                   </div>
                 </SortableContext>
               </WishKanbanBoardDualSyncedHorizontalScrollbarsTopAndBottomClient>
 
-              <div
-                className={[
-                  "flex min-h-0 max-h-full min-w-0 shrink-0 flex-col overflow-hidden transition-[max-width] duration-300 ease-in-out",
-                  triageDrawerOpen
-                    ? "max-w-[min(100vw,440px)] border-l border-violet-300/60 shadow-[inset_1px_0_0_rgba(139,92,246,0.12),4px_0_28px_-12px_rgba(0,0,0,0.18)] dark:border-violet-700/45 dark:shadow-[inset_1px_0_0_rgba(167,139,250,0.08),4px_0_28px_-12px_rgba(0,0,0,0.45)]"
-                    : "max-w-0 border-l border-transparent shadow-none",
-                ].join(" ")}
-              >
-                <div className="flex h-full min-h-0 max-h-full w-[min(100vw,440px)] shrink-0 flex-col overflow-hidden">
-                  <WishGitlabTriageDrawerPanelWithControlledIssuesList
-                    open={triageDrawerOpen}
-                    onClose={() => setTriageDrawerOpen(false)}
-                    board={board}
-                    issues={triageIssues}
-                    setIssues={setTriageIssues}
-                    smartTaskTasks={smartTaskTasks}
-                    setSmartTaskTasks={setSmartTaskTasks}
-                  />
+              {!viewOnly ? (
+                <div
+                  className={[
+                    "flex min-h-0 max-h-full min-w-0 shrink-0 flex-col overflow-hidden transition-[max-width] duration-300 ease-in-out",
+                    triageDrawerOpen
+                      ? "max-w-[min(100vw,440px)] border-l border-violet-300/60 shadow-[inset_1px_0_0_rgba(139,92,246,0.12),4px_0_28px_-12px_rgba(0,0,0,0.18)] dark:border-violet-700/45 dark:shadow-[inset_1px_0_0_rgba(167,139,250,0.08),4px_0_28px_-12px_rgba(0,0,0,0.45)]"
+                      : "max-w-0 border-l border-transparent shadow-none",
+                  ].join(" ")}
+                >
+                  <div className="flex h-full min-h-0 max-h-full w-[min(100vw,440px)] shrink-0 flex-col overflow-hidden">
+                    <WishGitlabTriageDrawerPanelWithControlledIssuesList
+                      open={triageDrawerOpen}
+                      onClose={() => setTriageDrawerOpen(false)}
+                      board={board}
+                      issues={triageIssues}
+                      setIssues={setTriageIssues}
+                      smartTaskTasks={smartTaskTasks}
+                      setSmartTaskTasks={setSmartTaskTasks}
+                    />
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </div>
 
             <WishKanbanBoardDndDragOverlayVisualPreviewsLayer active={activeDragOverlay} />
@@ -806,11 +949,11 @@ export function WishKanbanBoardRootClient() {
       </div>
 
       <WishBoardModalAddGitlabIssueUrl
-        open={addIssueModal.open}
+        open={!viewOnly && addIssueModal.open}
         columnTitle={modalColumnTitle}
         onClose={() => setAddIssueModal({ open: false })}
         onSubmit={async (issueUrl) => {
-          if (!addIssueModal.open) return;
+          if (viewOnly || !addIssueModal.open) return;
 
           if (board && gitlabIssueUrlAlreadyPresentOnWishKanbanBoard(board, issueUrl)) {
             throw new Error("Esta issue já está no quadro.");
@@ -835,6 +978,17 @@ export function WishKanbanBoardRootClient() {
           setBoard((prev) => (prev ? wishKanbanBoardUpsertCardSnapshot(prev, cardId, res.data) : prev));
         }}
       />
+
+      {searchMatchingCardIds !== null ? (
+        <WishKanbanBoardModalSearchResultsMatchingIssuesListClient
+          open={boardSearchResultsModalOpen}
+          searchQuery={boardSearchQuery}
+          board={board}
+          matchingCardIds={searchMatchingCardIds}
+          onClose={() => setBoardSearchResultsModalOpen(false)}
+          onSelectCard={navigateToBoardSearchResultCard}
+        />
+      ) : null}
     </div>
   );
 }

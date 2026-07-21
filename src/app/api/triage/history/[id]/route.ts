@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { db } from "@/db/client";
 import { triageHistory } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { wishViewOnlyModeRejectIfEnabledAsNextResponseV1 } from "@/lib/wish-view-only-mode-json-error-response-v1";
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const viewOnlyRejected = wishViewOnlyModeRejectIfEnabledAsNextResponseV1();
+  if (viewOnlyRejected) return viewOnlyRejected;
+
   try {
     const { id } = await context.params;
     if (!id) {

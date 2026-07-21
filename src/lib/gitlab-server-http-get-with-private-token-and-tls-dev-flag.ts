@@ -1,11 +1,12 @@
 import https from "node:https";
+import { normalizeGitlabBaseUrlForServerRequestsV1 } from "@/lib/normalize-gitlab-base-url-for-server-requests-v1";
 
 export type GitlabServerHttpGetResult =
   | { ok: true; status: number; bodyText: string }
   | { ok: false; cause: unknown };
 
 export function normalizeGitlabBaseUrl(raw: string) {
-  return raw.trim().replace(/\/+$/, "");
+  return normalizeGitlabBaseUrlForServerRequestsV1(raw);
 }
 
 function gitlabGetHttpsIgnoringCert(apiUrl: string, token: string): Promise<GitlabServerHttpGetResult> {
@@ -163,6 +164,79 @@ export async function gitlabServerHttpPutJsonWithPrivateTokenAndTlsDevFlag(
     });
     const bodyText = await upstream.text();
     return { ok: true, status: upstream.status, bodyText };
+  } catch (cause) {
+    return { ok: false, cause };
+  }
+}
+
+export type GitlabServerHttpGetBufferResult =
+  | { ok: true; status: number; body: Buffer; contentType: string | null }
+  | { ok: false; cause: unknown };
+
+function gitlabGetBufferHttpsIgnoringCert(apiUrl: string, token: string): Promise<GitlabServerHttpGetBufferResult> {
+  const u = new URL(apiUrl);
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: `${u.pathname}${u.search}`,
+        method: "GET",
+        headers: {
+          "PRIVATE-TOKEN": token,
+          "user-agent": "tinadosdesejos/gitlab-api",
+        },
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on("end", () => {
+          const contentTypeHeader = res.headers["content-type"];
+          const contentType =
+            typeof contentTypeHeader === "string"
+              ? contentTypeHeader
+              : Array.isArray(contentTypeHeader)
+                ? contentTypeHeader[0] ?? null
+                : null;
+          resolve({
+            ok: true,
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks),
+            contentType,
+          });
+        });
+      },
+    );
+    req.on("error", (cause) => resolve({ ok: false, cause }));
+    req.end();
+  });
+}
+
+/** GET binário (uploads/imagens) com a mesma política TLS do GET textual. */
+export async function gitlabServerHttpGetBufferWithPrivateTokenAndTlsDevFlag(
+  apiUrl: string,
+  token: string,
+  tlsInsecureDev: boolean,
+): Promise<GitlabServerHttpGetBufferResult> {
+  if (tlsInsecureDev && apiUrl.startsWith("https:")) {
+    return gitlabGetBufferHttpsIgnoringCert(apiUrl, token);
+  }
+
+  try {
+    const upstream = await fetch(apiUrl, {
+      headers: {
+        "PRIVATE-TOKEN": token,
+      },
+      cache: "no-store",
+    });
+    const bytes = await upstream.arrayBuffer();
+    return {
+      ok: true,
+      status: upstream.status,
+      body: Buffer.from(bytes),
+      contentType: upstream.headers.get("content-type"),
+    };
   } catch (cause) {
     return { ok: false, cause };
   }

@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
+import { wishViewOnlyModeRejectIfEnabledAsNextResponseV1 } from "@/lib/wish-view-only-mode-json-error-response-v1";
 
 /**
  * Proxy para `GET <BASE>/api/integrations/v1/snapshot` do SmartTask (evita expor a API key no browser).
  * Env: `SMARTTASK_SNAPSHOT_BASE_URL`, `SMARTTASK_INTEGRATION_API_KEY`.
  */
 export async function GET() {
+  const viewOnlyRejected = wishViewOnlyModeRejectIfEnabledAsNextResponseV1();
+  if (viewOnlyRejected) return viewOnlyRejected;
+
   const base = process.env.SMARTTASK_SNAPSHOT_BASE_URL?.trim();
   const token = process.env.SMARTTASK_INTEGRATION_API_KEY?.trim();
   if (!base || !token) {

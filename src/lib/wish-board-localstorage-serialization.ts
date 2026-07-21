@@ -50,6 +50,16 @@ export function writeWishKanbanBoardToLocalStorage(board: WishKanbanBoard): void
   window.localStorage.setItem(WISH_BOARD_LOCAL_STORAGE_KEY_V1, stringifyWishKanbanBoard(board));
 }
 
+/** Remove cópia legada do navegador após migração/import bem-sucedidos no SQLite. */
+export function clearWishKanbanBoardFromLocalStorageAfterSqliteMigrationV1(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(WISH_BOARD_LOCAL_STORAGE_KEY_V1);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function exportWishKanbanBoardJsonFile(board: WishKanbanBoard, filename: string): void {
   const blob = new Blob([stringifyWishKanbanBoard(board)], {
     type: "application/json;charset=utf-8",

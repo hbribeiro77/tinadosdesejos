@@ -23,6 +23,7 @@ export function wishKanbanBoardSearchHaystackForCardFromBoard(
     );
     if (d.smartTaskDescriptionMarkdown) parts.push(d.smartTaskDescriptionMarkdown);
     if (d.smartTaskSearchHaystack) parts.push(d.smartTaskSearchHaystack);
+    if (d.gitlabDescriptionMarkdown) parts.push(d.gitlabDescriptionMarkdown);
   }
   return parts.filter(Boolean).join(" ");
 }

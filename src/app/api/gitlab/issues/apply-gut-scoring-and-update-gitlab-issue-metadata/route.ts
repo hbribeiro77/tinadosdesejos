@@ -24,7 +24,9 @@ import {
   mergeGitLabIssueSummaryDtoLabelsWithProjectLabelColorLookup,
   wishGitlabRestFetchProjectLabelNameToHexColorMap,
 } from "@/lib/wish-gitlab-rest-fetch-project-label-name-to-hex-color-map-for-resolve-enrichment";
+import { enrichGitLabIssueSummaryDtoWithMirroredDescriptionUploadAssetsOnServerV1 } from "@/lib/mirror-gitlab-issue-description-upload-assets-to-local-data-directory-and-rewrite-markdown-on-server-v1";
 import { wishGitlabIssueLabelNamesFromSnapshotMatchAllRequiredNamesCaseInsensitive } from "@/lib/wish-gitlab-issue-label-names-from-snapshot-match-all-required-names-case-insensitive";
+import { wishViewOnlyModeRejectIfEnabledAsNextResponseV1 } from "@/lib/wish-view-only-mode-json-error-response-v1";
 
 function json(body: GitLabApplyGutScoringToGitlabIssueResponseDto, init?: { status?: number }) {
   return NextResponse.json(body, { status: init?.status ?? (body.ok ? 200 : 400) });
@@ -115,6 +117,13 @@ async function fetchGitlabIssueSummaryDtoWithLabelEnrichment(params: {
     data = mergeGitLabIssueSummaryDtoLabelsWithProjectLabelColorLookup(data, colorByName);
   }
 
+  data = await enrichGitLabIssueSummaryDtoWithMirroredDescriptionUploadAssetsOnServerV1(data, {
+    gitlabBaseUrl,
+    token,
+    tlsInsecureDev,
+    skipMirror: process.env.GITLAB_MOCK === "1",
+  });
+
   return { ok: true, data, rawIssue: jsonBody };
 }
 
@@ -140,6 +149,9 @@ function buildMockGutAppliedSummary(
 }
 
 export async function POST(request: Request) {
+  const viewOnlyRejected = wishViewOnlyModeRejectIfEnabledAsNextResponseV1();
+  if (viewOnlyRejected) return viewOnlyRejected;
+
   let body: unknown;
   try {
     body = await request.json();

@@ -32,6 +32,28 @@ describe("mapGitLabRestIssueJsonToSummaryDto labels", () => {
     expect(dto.updatedAt).toBe("2026-01-01T12:00:00Z");
   });
 
+  it("mapeia description para gitlabDescriptionMarkdown", () => {
+    const dto = mapGitLabRestIssueJsonToSummaryDto(
+      {
+        ...baseIssue(),
+        description: "## Contexto\n\nTexto com **markdown**.",
+      },
+      "a/b",
+    );
+    expect(dto.gitlabDescriptionMarkdown).toBe("## Contexto\n\nTexto com **markdown**.");
+  });
+
+  it("omite gitlabDescriptionMarkdown quando description vazia", () => {
+    const dto = mapGitLabRestIssueJsonToSummaryDto(
+      {
+        ...baseIssue(),
+        description: "   ",
+      },
+      "a/b",
+    );
+    expect(dto.gitlabDescriptionMarkdown).toBeUndefined();
+  });
+
   it("labels como strings recebem cor de label_details quando existir", () => {
     const dto = mapGitLabRestIssueJsonToSummaryDto(
       {

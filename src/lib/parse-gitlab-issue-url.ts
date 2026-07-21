@@ -43,11 +43,11 @@ export function parseGitLabIssueUrl(raw: string): ParsedGitLabIssueUrl {
   }
 
   const pathname = url.pathname.replace(/\/+$/, "");
-  const match = pathname.match(/^\/(.+)\/-\/issues\/(\d+)$/);
+  const match = pathname.match(/^\/(.+)\/-\/(?:issues|work_items)\/(\d+)$/);
   if (!match) {
     throw new GitLabIssueUrlParseError(
       "missing_issue_path",
-      "Esperado um caminho no formato `.../-/issues/:iid` (link web do GitLab).",
+      "Esperado um caminho no formato `.../-/issues/:iid` ou `.../-/work_items/:iid` (link web do GitLab).",
     );
   }
 

@@ -30,6 +30,8 @@ type WishKanbanColumnWithSortableCardsProps = {
   onToggleColumnCollapsed: (columnId: string, collapsed: boolean) => void;
   /** Se definido, cards onde retorna `true` ficam esmaecidos (busca no quadro). */
   isCardMutedByBoardSearch?: (cardId: string) => boolean;
+  /** Modo visualização: sem DnD, +Issue, renomear/apagar coluna. */
+  viewOnly?: boolean;
 };
 
 /**
@@ -45,6 +47,7 @@ function buildCardListWithPlaceholder(
   onMergeGitlabSnapshotAfterDvitu: ((cardId: string, data: GitLabIssueSummaryDto) => void) | undefined,
   onMergeGitlabSnapshotAfterGut: ((cardId: string, data: GitLabIssueSummaryDto) => void) | undefined,
   isCardMutedByBoardSearch?: (cardId: string) => boolean,
+  viewOnly?: boolean,
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
 
@@ -63,6 +66,7 @@ function buildCardListWithPlaceholder(
           onMergeGitlabSnapshotAfterDvitu={onMergeGitlabSnapshotAfterDvitu}
           onMergeGitlabSnapshotAfterGut={onMergeGitlabSnapshotAfterGut}
           mutedByBoardSearch={isCardMutedByBoardSearch?.(card.id) ?? false}
+          viewOnly={viewOnly}
         />,
       );
     }
@@ -87,6 +91,7 @@ function WishKanbanCrossColumnDropPlaceholder() {
 
 export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSortableCardsProps) {
   const tina = useWishTinaDialog();
+  const viewOnly = Boolean(props.viewOnly);
   const column = props.board.columnsById[props.columnId]!;
   const collapsed = Boolean(column.collapsed);
   const cardCount = column.cardIds.length;
@@ -99,6 +104,8 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
     : column.cardIds.length;
   const showSearchNoMatchInColumn =
     Boolean(isMutedByBoardSearchFn) && column.cardIds.length > 0 && visibleCardsForSearchCount === 0;
+  const highlightColumnForBoardSearchMatch =
+    Boolean(isMutedByBoardSearchFn) && visibleCardsForSearchCount > 0;
 
   const {
     attributes: columnSortableAttributes,
@@ -110,6 +117,7 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
   } = useSortable({
     id: column.id,
     data: { kind: "wishKanbanColumn" as const },
+    disabled: viewOnly,
   });
 
   /** Junta transição do DnD com largura — senão o `transition` inline do sortable apaga o animate de expand/collapse. */
@@ -137,11 +145,14 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
   );
 
   const columnShellClass = [
-    "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-zinc-50 shadow-sm dark:border-white/10 dark:bg-zinc-950/40",
+    "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden rounded-xl border border-black/10 bg-zinc-50 shadow-sm transition-[box-shadow,ring-color] duration-200 motion-reduce:transition-none dark:border-white/10 dark:bg-zinc-950/40",
     collapsed ? "w-[52px] min-w-[52px]" : "w-[380px] min-w-[360px]",
     isColumnDragging ? "z-20 opacity-90 ring-2 ring-zinc-400/60 dark:ring-zinc-600/60" : "",
     props.isDropHighlight && !isColumnDragging
       ? "ring-[3px] ring-sky-500/60 shadow-[0_0_0_4px_rgba(14,165,233,0.18)] dark:ring-sky-400/50 dark:shadow-[0_0_0_4px_rgba(56,189,248,0.12)]"
+      : "",
+    highlightColumnForBoardSearchMatch && !isColumnDragging && !props.isDropHighlight
+      ? "ring-[3px] ring-amber-400/85 shadow-[0_0_0_4px_rgba(251,191,36,0.28)] dark:ring-amber-400/70 dark:shadow-[0_0_0_4px_rgba(251,191,36,0.18)]"
       : "",
   ].join(" ");
 
@@ -184,20 +195,22 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
               <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
           </button>
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-md text-zinc-400 hover:bg-black/5 hover:text-zinc-600 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
-            aria-label="Arrastar coluna para reordenar"
-            title="Arrastar coluna"
-            {...columnSortableAttributes}
-            {...columnSortableListeners}
-          >
-            <span className="select-none text-sm leading-none tracking-tighter">⋮⋮</span>
-          </button>
+          {!viewOnly ? (
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-md text-zinc-400 hover:bg-black/5 hover:text-zinc-600 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
+              aria-label="Arrastar coluna para reordenar"
+              title="Arrastar coluna"
+              {...columnSortableAttributes}
+              {...columnSortableListeners}
+            >
+              <span className="select-none text-sm leading-none tracking-tighter">⋮⋮</span>
+            </button>
+          ) : null}
         </div>
 
         <div
-          ref={collapsed ? bindColumnDropRef : undefined}
+          ref={collapsed && !viewOnly ? bindColumnDropRef : undefined}
           title={collapsedHint}
           className={[
             "flex min-h-[200px] flex-1 flex-col items-center justify-start gap-2 px-1 pb-3 pt-2 transition-[background-color,outline-color,box-shadow] duration-150",
@@ -220,39 +233,41 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
           </span>
         </div>
 
-        <div className="flex flex-col items-center gap-1 border-t border-black/5 py-2 dark:border-white/5">
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-600 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
-            aria-label="Adicionar issue nesta coluna"
-            title="Adicionar issue"
-            onClick={() => props.onAddCard(column.id)}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14"></path>
-              <path d="M5 12h14"></path>
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
-            aria-label="Remover coluna"
-            title="Remover coluna"
-            onClick={async () => {
-              const ok = await tina.confirm(
-                "Remover esta coluna? Os cards serão movidos para a coluna anterior (ou seguinte).",
-              );
-              if (!ok) return;
-              props.onDeleteColumn(column.id);
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 6h18"></path>
-              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-            </svg>
-          </button>
-        </div>
+        {!viewOnly ? (
+          <div className="flex flex-col items-center gap-1 border-t border-black/5 py-2 dark:border-white/5">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-600 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+              aria-label="Adicionar issue nesta coluna"
+              title="Adicionar issue"
+              onClick={() => props.onAddCard(column.id)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14"></path>
+                <path d="M5 12h14"></path>
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+              aria-label="Remover coluna"
+              title="Remover coluna"
+              onClick={async () => {
+                const ok = await tina.confirm(
+                  "Remover esta coluna? Os cards serão movidos para a coluna anterior (ou seguinte).",
+                );
+                if (!ok) return;
+                props.onDeleteColumn(column.id);
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {/* Camada expandida — mantém cards montados para DnD */}
@@ -272,27 +287,38 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
             </svg>
           </button>
           <div className="min-w-0 flex-1">
-            <input
-              className="w-full truncate rounded-md bg-transparent px-2 py-1.5 text-base font-semibold text-zinc-900 outline-none ring-zinc-400 focus:bg-white focus:ring-2 dark:text-zinc-50 dark:focus:bg-zinc-900"
-              value={column.title}
-              onChange={(e) => props.onRenameColumn(column.id, e.target.value)}
-              aria-label="Título da coluna"
-              placeholder="Nome da coluna"
-            />
+            {viewOnly ? (
+              <div
+                className="w-full truncate px-2 py-1.5 text-base font-semibold text-zinc-900 dark:text-zinc-50"
+                title={column.title}
+              >
+                {column.title.trim() || "Sem nome"}
+              </div>
+            ) : (
+              <input
+                className="w-full truncate rounded-md bg-transparent px-2 py-1.5 text-base font-semibold text-zinc-900 outline-none ring-zinc-400 focus:bg-white focus:ring-2 dark:text-zinc-50 dark:focus:bg-zinc-900"
+                value={column.title}
+                onChange={(e) => props.onRenameColumn(column.id, e.target.value)}
+                aria-label="Título da coluna"
+                placeholder="Nome da coluna"
+              />
+            )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-md text-zinc-400 hover:bg-black/5 hover:text-zinc-600 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
-            aria-label="Arrastar coluna para reordenar"
-            title="Arrastar coluna"
-            {...columnSortableAttributes}
-            {...columnSortableListeners}
-          >
-            <span className="select-none text-sm leading-none tracking-tighter">⋮⋮</span>
-          </button>
-        </div>
+        {!viewOnly ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 shrink-0 cursor-grab items-center justify-center rounded-md text-zinc-400 hover:bg-black/5 hover:text-zinc-600 active:cursor-grabbing dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
+              aria-label="Arrastar coluna para reordenar"
+              title="Arrastar coluna"
+              {...columnSortableAttributes}
+              {...columnSortableListeners}
+            >
+              <span className="select-none text-sm leading-none tracking-tighter">⋮⋮</span>
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <SortableContext
@@ -301,10 +327,10 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
         strategy={verticalListSortingStrategy}
       >
         <div
-          ref={!collapsed ? bindColumnDropRef : undefined}
+          ref={!collapsed && !viewOnly ? bindColumnDropRef : undefined}
           className={[
             "flex min-h-[220px] flex-col gap-3 p-3 transition-[background-color,outline-color,box-shadow] duration-150",
-            dropZoneHot
+            dropZoneHot && !viewOnly
               ? "rounded-b-lg bg-sky-100/85 outline outline-2 outline-offset-0 outline-dashed outline-sky-600 shadow-[inset_0_0_0_1px_rgba(2,132,199,0.25)] dark:bg-sky-950/45 dark:outline-sky-400 dark:shadow-[inset_0_0_0_1px_rgba(56,189,248,0.2)]"
               : "",
           ].join(" ")}
@@ -317,54 +343,61 @@ export function WishKanbanColumnWithSortableCards(props: WishKanbanColumnWithSor
 
           {column.cardIds.length === 0 && props.insertBeforeIndex == null ? (
             <div className="rounded-lg border border-dashed border-black/15 p-4 text-center text-sm text-zinc-500 dark:border-white/15 dark:text-zinc-400">
-              Arraste issues para cá ou clique em <span className="font-medium">+ Issue</span> no rodapé.
+              {viewOnly ? "Nenhuma issue nesta coluna." : (
+                <>
+                  Arraste issues para cá ou clique em <span className="font-medium">+ Issue</span> no rodapé.
+                </>
+              )}
             </div>
           ) : null}
 
           {buildCardListWithPlaceholder(
             column.cardIds,
             props.board.cardsById,
-            props.insertBeforeIndex ?? null,
+            viewOnly ? null : (props.insertBeforeIndex ?? null),
             props.onRemoveCard,
             props.onRefreshCard,
             props.onMergeGitlabSnapshotAfterDvitu,
             props.onMergeGitlabSnapshotAfterGut,
             props.isCardMutedByBoardSearch,
+            viewOnly,
           )}
         </div>
       </SortableContext>
 
-      <div className="flex items-center justify-between border-t border-black/5 p-2 dark:border-white/5">
-        <button
-          type="button"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
-          onClick={() => props.onAddCard(column.id)}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14"></path>
-            <path d="M5 12h14"></path>
-          </svg>
-          Adicionar Issue
-        </button>
-        <button
-          type="button"
-          className="rounded-md p-2 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
-          title="Remover coluna"
-          onClick={async () => {
-            const ok = await tina.confirm(
-              "Remover esta coluna? Os cards serão movidos para a coluna anterior (ou seguinte).",
-            );
-            if (!ok) return;
-            props.onDeleteColumn(column.id);
-          }}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h18"></path>
-            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-          </svg>
-        </button>
-      </div>
+      {!viewOnly ? (
+        <div className="flex items-center justify-between border-t border-black/5 p-2 dark:border-white/5">
+          <button
+            type="button"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-black/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+            onClick={() => props.onAddCard(column.id)}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14"></path>
+              <path d="M5 12h14"></path>
+            </svg>
+            Adicionar Issue
+          </button>
+          <button
+            type="button"
+            className="rounded-md p-2 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+            title="Remover coluna"
+            onClick={async () => {
+              const ok = await tina.confirm(
+                "Remover esta coluna? Os cards serão movidos para a coluna anterior (ou seguinte).",
+              );
+              if (!ok) return;
+              props.onDeleteColumn(column.id);
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18"></path>
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
+      ) : null}
       </div>
     </div>
   );

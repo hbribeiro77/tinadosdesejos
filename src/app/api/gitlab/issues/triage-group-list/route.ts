@@ -7,6 +7,7 @@ import {
 } from "@/lib/gitlab-server-http-get-with-private-token-and-tls-dev-flag";
 import { mapGitLabIssueJsonToSummaryDtoUsingIssueWebUrl } from "@/lib/map-gitlab-issue-json-to-summary-dto-using-issue-web-url";
 import { parseGitLabImportLabelsCsvFromTriageGroupListBody } from "@/lib/parse-gitlab-import-labels-csv-from-triage-group-list-request-body";
+import { wishViewOnlyModeRejectIfEnabledAsNextResponseV1 } from "@/lib/wish-view-only-mode-json-error-response-v1";
 
 function json(body: GitLabTriageGroupIssuesListResponse, init?: { status?: number }) {
   return NextResponse.json(body, { status: init?.status ?? (body.ok ? 200 : 400) });
@@ -45,6 +46,9 @@ function buildMockTriageIssues(baseUrl: string): GitLabIssueSummaryDto[] {
 }
 
 export async function POST(request: Request) {
+  const viewOnlyRejected = wishViewOnlyModeRejectIfEnabledAsNextResponseV1();
+  if (viewOnlyRejected) return viewOnlyRejected;
+
   let body: unknown;
   try {
     body = await request.json();

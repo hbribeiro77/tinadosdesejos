@@ -13,6 +13,8 @@ import React, {
 export type WishTinaDialogApi = {
   alert: (message: string) => Promise<void>;
   confirm: (message: string) => Promise<boolean>;
+  /** Prompt de texto (ex.: API key de importação). Cancelar → `null`. */
+  prompt: (message: string, options?: { inputType?: "text" | "password"; defaultValue?: string }) => Promise<string | null>;
 };
 
 const WishTinaDialogContext = createContext<WishTinaDialogApi | null>(null);
@@ -20,12 +22,16 @@ const WishTinaDialogContext = createContext<WishTinaDialogApi | null>(null);
 type DialogOpen =
   | { kind: "closed" }
   | { kind: "alert"; message: string }
-  | { kind: "confirm"; message: string };
+  | { kind: "confirm"; message: string }
+  | { kind: "prompt"; message: string; inputType: "text" | "password"; defaultValue: string };
 
 export function WishTinaDialogContextProviderClient(props: { children: React.ReactNode }) {
   const [open, setOpen] = useState<DialogOpen>({ kind: "closed" });
+  const [promptDraft, setPromptDraft] = useState("");
   const alertResolveRef = useRef<(() => void) | null>(null);
   const confirmResolveRef = useRef<((value: boolean) => void) | null>(null);
+  const promptResolveRef = useRef<((value: string | null) => void) | null>(null);
+  const promptInputRef = useRef<HTMLInputElement | null>(null);
 
   const close = useCallback(() => {
     setOpen({ kind: "closed" });
@@ -51,6 +57,26 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
     });
   }, []);
 
+  const promptFn = useCallback(
+    (message: string, options?: { inputType?: "text" | "password"; defaultValue?: string }) => {
+      return new Promise<string | null>((resolve) => {
+        promptResolveRef.current = (value) => {
+          resolve(value);
+          promptResolveRef.current = null;
+        };
+        const defaultValue = options?.defaultValue ?? "";
+        setPromptDraft(defaultValue);
+        setOpen({
+          kind: "prompt",
+          message,
+          inputType: options?.inputType ?? "text",
+          defaultValue,
+        });
+      });
+    },
+    [],
+  );
+
   const onAlertDismiss = useCallback(() => {
     alertResolveRef.current?.();
     close();
@@ -59,6 +85,14 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
   const onConfirmResult = useCallback(
     (value: boolean) => {
       confirmResolveRef.current?.(value);
+      close();
+    },
+    [close],
+  );
+
+  const onPromptResult = useCallback(
+    (value: string | null) => {
+      promptResolveRef.current?.(value);
       close();
     },
     [close],
@@ -73,19 +107,28 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
           onAlertDismiss();
         } else if (open.kind === "confirm") {
           onConfirmResult(false);
+        } else if (open.kind === "prompt") {
+          onPromptResult(null);
         }
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open.kind, onAlertDismiss, onConfirmResult]);
+  }, [open.kind, onAlertDismiss, onConfirmResult, onPromptResult]);
+
+  useEffect(() => {
+    if (open.kind !== "prompt") return;
+    const id = window.setTimeout(() => promptInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(id);
+  }, [open.kind]);
 
   const value = useMemo(
     () => ({
       alert: alertFn,
       confirm: confirmFn,
+      prompt: promptFn,
     }),
-    [alertFn, confirmFn],
+    [alertFn, confirmFn, promptFn],
   );
 
   const dialogVisible = open.kind !== "closed";
@@ -101,6 +144,7 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
             if (e.target === e.currentTarget) {
               if (open.kind === "alert") onAlertDismiss();
               else if (open.kind === "confirm") onConfirmResult(false);
+              else if (open.kind === "prompt") onPromptResult(null);
             }
           }}
         >
@@ -127,8 +171,25 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
                   Tina dos desejos
                 </div>
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-violet-900/90 dark:text-violet-100/90">
-                  {open.kind === "alert" || open.kind === "confirm" ? open.message : ""}
+                  {open.kind === "alert" || open.kind === "confirm" || open.kind === "prompt" ? open.message : ""}
                 </p>
+                {open.kind === "prompt" ? (
+                  <input
+                    ref={promptInputRef}
+                    type={open.inputType}
+                    className="mt-3 w-full rounded-lg border border-violet-300/90 bg-white px-3 py-2 text-sm text-violet-950 outline-none ring-violet-400 focus:ring-2 dark:border-violet-600/70 dark:bg-violet-950/60 dark:text-violet-50"
+                    value={promptDraft}
+                    onChange={(e) => setPromptDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        onPromptResult(promptDraft);
+                      }
+                    }}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                ) : null}
               </div>
             </div>
 
@@ -148,6 +209,23 @@ export function WishTinaDialogContextProviderClient(props: { children: React.Rea
                     onClick={() => onConfirmResult(true)}
                   >
                     Confirmar
+                  </button>
+                </>
+              ) : open.kind === "prompt" ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-violet-300/90 bg-white/90 px-4 py-2 text-sm font-medium text-violet-900 shadow-sm hover:bg-violet-50 dark:border-violet-600/70 dark:bg-violet-950/50 dark:text-violet-100 dark:hover:bg-violet-900/70"
+                    onClick={() => onPromptResult(null)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-700 dark:bg-violet-500 dark:text-violet-950 dark:hover:bg-violet-400"
+                    onClick={() => onPromptResult(promptDraft)}
+                  >
+                    Continuar
                   </button>
                 </>
               ) : (

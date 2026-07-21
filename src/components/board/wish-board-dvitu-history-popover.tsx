@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatIso8601DateTimeForUiDisplayBrazilLocaleShort } from "@/lib/format-iso-8601-date-time-for-ui-display-brazil-locale-short";
 import { useWishTinaDialog } from "@/components/dialog/wish-tina-dialog-context-provider-client";
 
@@ -29,8 +29,25 @@ export type WishBoardDvituHistoryPopoverProps = {
  * Gatilho + painel de exemplos de triagem para um par (eixo DVITU, nota). Lista só é buscada ao abrir o painel.
  * Use uma instância por alternativa (1–5) na matriz, ao lado do rótulo.
  */
+const DVITU_EXAMPLES_POPOVER_OPEN_AFTER_HOVER_MS = 1000;
+
 export function WishBoardDvituHistoryPopover({ axis, score, hasRecordsForPair }: WishBoardDvituHistoryPopoverProps) {
   const [open, setOpen] = useState(false);
+  const openRef = useRef(open);
+  openRef.current = open;
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearOpenHoverTimer = () => {
+    if (openTimerRef.current != null) {
+      clearTimeout(openTimerRef.current);
+      openTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => () => clearOpenHoverTimer(), []);
+
   const [data, setData] = useState<HistoryRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +81,18 @@ export function WishBoardDvituHistoryPopover({ axis, score, hasRecordsForPair }:
     };
   }, [axis, score, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+      const t = e.target;
+      if (t instanceof Node && !root.contains(t)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [open]);
+
   const handleDelete = async (id: string) => {
     const confirmed = await dialog.confirm("Remover este exemplo do histórico?");
     if (!confirmed) return;
@@ -82,12 +111,29 @@ export function WishBoardDvituHistoryPopover({ axis, score, hasRecordsForPair }:
   if (!hasRecordsForPair) return null;
 
   return (
-    <div className="relative inline-flex shrink-0">
+    <div
+      ref={rootRef}
+      className="relative inline-flex shrink-0"
+      onMouseEnter={() => {
+        clearOpenHoverTimer();
+        if (openRef.current) return;
+        openTimerRef.current = setTimeout(() => {
+          openTimerRef.current = null;
+          setOpen(true);
+        }, DVITU_EXAMPLES_POPOVER_OPEN_AFTER_HOVER_MS);
+      }}
+      onMouseLeave={(e) => {
+        const next = e.relatedTarget;
+        if (next instanceof Node && rootRef.current?.contains(next)) return;
+        clearOpenHoverTimer();
+      }}
+    >
       <button
         type="button"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          clearOpenHoverTimer();
           setOpen((prev) => !prev);
         }}
         className="text-xs text-sky-600 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
@@ -98,7 +144,7 @@ export function WishBoardDvituHistoryPopover({ axis, score, hasRecordsForPair }:
 
       {open && (
         <div
-          className="absolute right-0 top-full z-[10001] mt-1 flex w-72 max-w-[min(18rem,85vw)] flex-col gap-3 rounded-md border border-black/10 bg-white p-3 shadow-lg dark:border-white/10 dark:bg-zinc-900"
+          className="absolute right-0 top-full z-[10001] -mt-1 flex w-72 max-w-[min(18rem,85vw)] flex-col gap-3 rounded-md border border-black/10 bg-white p-3 pt-4 shadow-lg dark:border-white/10 dark:bg-zinc-900"
           role="dialog"
           aria-label={`Exemplos de nota ${score}`}
           onClick={(e) => e.stopPropagation()}

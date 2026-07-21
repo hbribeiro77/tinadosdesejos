@@ -115,6 +115,9 @@ export function mapGitLabRestIssueJsonToSummaryDto(
   const webUrl = readString(issue.web_url) ?? "";
   const updatedAt = readString(issue.updated_at) ?? new Date().toISOString();
   const createdAt = readString(issue.created_at) ?? updatedAt;
+  const descriptionRaw = issue.description;
+  const gitlabDescriptionMarkdown =
+    typeof descriptionRaw === "string" && descriptionRaw.trim() ? descriptionRaw : undefined;
 
   return {
     ...(gitlabIssueId != null ? { gitlabIssueId } : {}),
@@ -127,5 +130,6 @@ export function mapGitLabRestIssueJsonToSummaryDto(
     assignees: mapAssignees(issue),
     createdAt,
     updatedAt,
+    ...(gitlabDescriptionMarkdown ? { gitlabDescriptionMarkdown } : {}),
   };
 }

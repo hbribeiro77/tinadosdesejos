@@ -22,6 +22,8 @@ export type GitLabIssueSummaryDto = {
   /** ISO 8601 — `created_at` da API REST do GitLab. */
   createdAt: string;
   updatedAt: string;
+  /** Descrição Markdown da issue no GitLab (`description` da API REST). */
+  gitlabDescriptionMarkdown?: string;
   /** Presente quando o card veio do SmartTask ( Markdown livre da exportação ). */
   smartTaskDescriptionMarkdown?: string;
   /** Texto extra para busca no quadro (descrição + subtarefas + metadados SmartTask). */

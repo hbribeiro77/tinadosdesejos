@@ -4,6 +4,7 @@ import {
   gitlabServerHttpPostJsonWithPrivateTokenAndTlsDevFlag,
   normalizeGitlabBaseUrl,
 } from "@/lib/gitlab-server-http-get-with-private-token-and-tls-dev-flag";
+import { wishViewOnlyModeRejectIfEnabledAsNextResponseV1 } from "@/lib/wish-view-only-mode-json-error-response-v1";
 
 function json(body: GitLabCreateIssueInProjectResponseDto, init?: { status?: number }) {
   return NextResponse.json(body, { status: init?.status ?? (body.ok ? 201 : 400) });
@@ -39,6 +40,9 @@ function buildMockCreateResponse(
 }
 
 export async function POST(request: Request) {
+  const viewOnlyRejected = wishViewOnlyModeRejectIfEnabledAsNextResponseV1();
+  if (viewOnlyRejected) return viewOnlyRejected;
+
   let body: unknown;
   try {
     body = await request.json();
