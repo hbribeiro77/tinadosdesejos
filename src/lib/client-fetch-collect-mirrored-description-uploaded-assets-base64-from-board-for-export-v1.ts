@@ -1,6 +1,6 @@
 import type { WishKanbanBoard } from "@/lib/wish-kanban-board-domain-types";
 import { wishKanbanBoardCollectMirroredDescriptionUploadedAssetFileNamesFromBoardMarkdownV1 } from "@/lib/wish-kanban-board-collect-mirrored-description-uploaded-asset-file-names-from-board-markdown-v1";
-import { wishGitlabDescriptionUploadedAssetLocalServeUrlFromFileNameV1 } from "@/lib/wish-gitlab-description-uploaded-asset-file-name-from-absolute-url-v1";
+import { wishGitlabDescriptionUploadedAssetLocalServeUrlFromFileNameV1 } from "@/lib/wish-gitlab-description-uploaded-asset-file-name-is-valid-for-serve-v1";
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();

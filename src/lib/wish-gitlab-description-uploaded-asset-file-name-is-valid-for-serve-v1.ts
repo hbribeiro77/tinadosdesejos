@@ -8,3 +8,8 @@ const WISH_GITLAB_DESCRIPTION_UPLOADED_ASSET_FILE_NAME_RE_V1 =
 export function wishGitlabDescriptionUploadedAssetFileNameIsValidForServeV1(fileName: string): boolean {
   return WISH_GITLAB_DESCRIPTION_UPLOADED_ASSET_FILE_NAME_RE_V1.test(fileName);
 }
+
+/** URL relativa (mesmo origin) — puro, seguro para bundle do cliente. */
+export function wishGitlabDescriptionUploadedAssetLocalServeUrlFromFileNameV1(fileName: string): string {
+  return `${WISH_GITLAB_DESCRIPTION_UPLOADED_ASSET_SERVE_API_PREFIX_V1}/${fileName}`;
+}

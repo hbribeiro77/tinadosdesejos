@@ -9,8 +9,8 @@ import {
 } from "@/lib/resolve-gitlab-markdown-upload-asset-target-to-server-fetch-url-v1";
 import {
   wishGitlabDescriptionUploadedAssetFileNameFromAbsoluteUrlV1,
-  wishGitlabDescriptionUploadedAssetLocalServeUrlFromFileNameV1,
 } from "@/lib/wish-gitlab-description-uploaded-asset-file-name-from-absolute-url-v1";
+import { wishGitlabDescriptionUploadedAssetLocalServeUrlFromFileNameV1 } from "@/lib/wish-gitlab-description-uploaded-asset-file-name-is-valid-for-serve-v1";
 
 export const WISH_GITLAB_DESCRIPTION_UPLOADED_ASSETS_DATA_DIRECTORY_NAME_V1 =
   "gitlab-description-uploaded-assets-v1";
