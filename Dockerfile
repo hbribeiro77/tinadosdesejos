@@ -15,12 +15,16 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+# postinstall chama scripts/ensure-better-sqlite3-… — precisa existir antes do npm ci
+COPY scripts ./scripts
 RUN npm ci
 
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build \
+# Garante native rebuild no contexto final do build (Node 22 da imagem)
+RUN npm run ensure:sqlite \
+  && npm run build \
   && npm prune --omit=dev
 
 FROM node:22.14.0-bookworm-slim AS runtime
