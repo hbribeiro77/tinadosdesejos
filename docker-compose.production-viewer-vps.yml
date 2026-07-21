@@ -1,0 +1,24 @@
+# Viewer em produção na VPS (modo visualização).
+# Na pasta do projeto (ou clone na VPS):
+#   1. Crie .env.production com WISH_VIEW_ONLY_MODE=1 e WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=...
+#   2. mkdir -p data
+#   3. docker compose -f docker-compose.production-viewer-vps.yml up -d --build
+
+services:
+  tinadosdesejos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tinadosdesejos:latest
+    container_name: tinadosdesejos
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"

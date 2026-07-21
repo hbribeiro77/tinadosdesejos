@@ -100,6 +100,29 @@ Na primeira carga após o deploy: se o SQLite estiver **vazio** e ainda existir 
 - Certificados TLS internos / CA customizada são, em geral, **configuração de ambiente** (ex.: `NODE_EXTRA_CA_CERTS`), não regra de negócio do app.
 - Faça **backup** de `data/triage.db`, `data/gitlab-description-uploaded-assets-v1/` e/ou export JSON do quadro antes de atualizações grandes.
 
+## Docker (VPS)
+
+Imagem multi-stage (`Dockerfile`): Node **22.14**, build com toolchain para `better-sqlite3`, runtime só com deps de produção.
+
+```powershell
+# Build
+docker build -t tinadosdesejos:latest .
+
+# Rodar (volume data/ + env de produção)
+docker run --rm -p 3000:3000 `
+  -v ${PWD}/data:/app/data `
+  --env-file .env.production `
+  tinadosdesejos:latest
+```
+
+Viewer com Compose: [`docker-compose.production-viewer-vps.yml`](docker-compose.production-viewer-vps.yml) — crie `.env.production` (`WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=...`, sem `GITLAB_TOKEN`), depois:
+
+```powershell
+docker compose -f docker-compose.production-viewer-vps.yml up -d --build
+```
+
+O SQLite e as imagens espelhadas ficam em `./data` no host (não vão na imagem).
+
 ## Scripts úteis
 
 - `npm run dev`: desenvolvimento.

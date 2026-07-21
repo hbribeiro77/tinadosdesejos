@@ -1,0 +1,34 @@
+# Dependências e artefatos locais (recriados no build da imagem)
+node_modules
+.next
+out
+data
+data-smoke
+*.db
+
+# Git / IDE / Cursor
+.git
+.gitignore
+.cursor
+.vscode
+
+# Env com segredos (passe via -e / --env-file / compose no runtime)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Testes e tooling que não precisam na imagem de produção
+src/**/*.unit.test.ts
+src/**/*.integration.unit.test.ts
+src/smoke
+vitest*.config.ts
+coverage
+agent-transcripts
+
+# Misc
+npm-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+*.tsbuildinfo
