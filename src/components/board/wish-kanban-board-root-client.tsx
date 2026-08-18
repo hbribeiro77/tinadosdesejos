@@ -161,6 +161,7 @@ export function WishKanbanBoardRootClient() {
   const [serverViewOnlyMode, setServerViewOnlyMode] = useState(false);
   const [boardImportRequiresApiKey, setBoardImportRequiresApiKey] = useState(false);
   const [accessGateRequired, setAccessGateRequired] = useState(false);
+  const [productionPublishAvailable, setProductionPublishAvailable] = useState(false);
   const [previewViewOnlyMode, setPreviewViewOnlyMode] = useState(() =>
     wishViewOnlyModeReadSessionPreviewToggleFromStorageV1(),
   );
@@ -194,6 +195,7 @@ export function WishKanbanBoardRootClient() {
         setServerViewOnlyMode(serverFlag);
         setBoardImportRequiresApiKey(flags.ok ? flags.boardImportRequiresApiKey : false);
         setAccessGateRequired(flags.ok ? flags.accessGateRequired : false);
+        setProductionPublishAvailable(flags.ok ? flags.productionPublishAvailable : false);
         const effectiveViewOnly =
           serverFlag || wishViewOnlyModeReadSessionPreviewToggleFromStorageV1();
 
@@ -766,6 +768,7 @@ export function WishKanbanBoardRootClient() {
             board={board}
             onImportBoard={(next) => setBoard(next)}
             boardImportRequiresApiKey={boardImportRequiresApiKey}
+            productionPublishAvailable={productionPublishAvailable}
           />
           {accessGateRequired ? (
             <button

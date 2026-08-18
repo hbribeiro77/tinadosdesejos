@@ -10,6 +10,7 @@ import {
 import { clientFetchWishKanbanBoardPersistedV1Get } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
 import { clientFetchWishKanbanBoardPersistedV1Put } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
 import { clientFetchWishKanbanBoardDescriptionUploadedAssetsImportV1Put } from "@/lib/client-fetch-wish-kanban-board-description-uploaded-assets-import-v1-api";
+import { clientFetchWishPublishBoardToProductionViewerV1Post } from "@/lib/client-fetch-wish-publish-board-to-production-viewer-v1-api";
 import {
   wishViewOnlyBoardImportApiKeyClearFromSessionStorageV1,
   wishViewOnlyBoardImportApiKeyReadFromSessionStorageV1,
@@ -22,6 +23,8 @@ type WishKanbanBoardToolbarExportImportBoardJsonProps = {
   onImportBoard: (board: WishKanbanBoard) => void;
   /** Em view-only de servidor: exige API key no PUT de importação. */
   boardImportRequiresApiKey?: boolean;
+  /** Editor local com env de publish para a VPS. */
+  productionPublishAvailable?: boolean;
 };
 
 async function resolveImportApiKeyWithOptionalRetryPrompt(params: {
@@ -55,6 +58,7 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
 ) {
   const tina = useWishTinaDialog();
   const boardImportRequiresApiKey = Boolean(props.boardImportRequiresApiKey);
+  const productionPublishAvailable = Boolean(props.productionPublishAvailable);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -84,6 +88,44 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
         <span className="hidden sm:inline">Exportar</span>
       </button>
+
+      {productionPublishAvailable ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-md border border-emerald-600/40 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-950 shadow-sm transition-colors hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-50 dark:hover:bg-emerald-900/50"
+          title="Envia o quadro e imagens espelhadas para o viewer na VPS (substitui o snapshot de produção)"
+          onClick={() => {
+            void (async () => {
+              const confirmed = await tina.confirm(
+                "Publicar o quadro atual na VPS? Isso substitui o quadro e as imagens espelhadas no viewer de produção.",
+              );
+              if (!confirmed) return;
+              try {
+                const result = await clientFetchWishPublishBoardToProductionViewerV1Post({
+                  board: props.board,
+                });
+                if (!result.ok) {
+                  await tina.alert(result.message);
+                  return;
+                }
+                const missing =
+                  result.missingLocalAssetCount > 0
+                    ? ` ${result.missingLocalAssetCount} imagem(ns) referenciada(s) não estavam no disco local.`
+                    : "";
+                await tina.alert(
+                  `Publicado em ${result.productionBaseUrl}. Imagens gravadas: ${result.assetWrittenCount}.${missing}`,
+                );
+              } catch (cause) {
+                const message = cause instanceof Error ? cause.message : "Falha ao publicar.";
+                await tina.alert(message);
+              }
+            })();
+          }}
+        >
+          <span className="hidden sm:inline">Publicar na VPS</span>
+          <span className="sm:hidden">VPS</span>
+        </button>
+      ) : null}
 
       <label
         className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"

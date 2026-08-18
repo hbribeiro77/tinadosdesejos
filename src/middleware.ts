@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { wishAppAccessGateIsEnabledFromServerEnvV1 } from "@/lib/wish-app-access-gate-is-enabled-from-server-env-v1";
+import { wishAppAccessGatePathAllowsBoardImportPutWithBearerWithoutSessionCookieV1 } from "@/lib/wish-app-access-gate-path-allows-board-import-put-with-bearer-without-session-cookie-v1";
 import { wishAppAccessGatePathIsPublicAllowlistV1 } from "@/lib/wish-app-access-gate-path-is-public-allowlist-v1";
 import { wishAppAccessSecretReadFromServerEnvV1 } from "@/lib/wish-app-access-secret-read-from-server-env-v1";
 import {
@@ -15,6 +16,16 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   if (wishAppAccessGatePathIsPublicAllowlistV1(pathname)) {
+    return NextResponse.next();
+  }
+
+  if (
+    wishAppAccessGatePathAllowsBoardImportPutWithBearerWithoutSessionCookieV1({
+      pathname,
+      method: request.method,
+      authorizationHeader: request.headers.get("authorization"),
+    })
+  ) {
     return NextResponse.next();
   }
 

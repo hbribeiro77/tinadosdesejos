@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { clientFetchGitlabCreateIssueInProjectApi } from "@/lib/client-fetch-gitlab-create-issue-in-project-api";
+import { clientFetchGitlabProjectMarkdownImageUploadV1 } from "@/lib/client-fetch-gitlab-project-markdown-image-upload-v1-api";
 import { clientFetchGitlabTriageImportDefaults } from "@/lib/client-fetch-gitlab-triage-import-defaults-api";
 import {
   readWishBoardModalAddGitlabIssueLastSelectedModeFromLocalStorage,
   writeWishBoardModalAddGitlabIssueLastSelectedModeToLocalStorage,
 } from "@/lib/wish-board-modal-add-gitlab-issue-last-selected-mode-local-storage-read-write";
+import { wishInsertGitlabMarkdownSnippetAtTextareaSelectionV1 } from "@/lib/wish-insert-gitlab-markdown-snippet-at-textarea-selection-v1";
+import { wishGitlabProjectUploadImageFileIsAllowedV1 } from "@/lib/wish-gitlab-project-upload-image-validate-and-parse-markdown-from-api-json-v1";
 
 type WishBoardModalAddGitlabIssueUrlProps = {
   open: boolean;
@@ -23,14 +26,69 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
   const [createTitle, setCreateTitle] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createProjectHint, setCreateProjectHint] = useState<string | null>(null);
   const [createLabelsHint, setCreateLabelsHint] = useState<string | null>(null);
   const issueUrlInputRef = useRef<HTMLInputElement>(null);
   const createTitleInputRef = useRef<HTMLInputElement>(null);
+  const createDescriptionRef = useRef<HTMLTextAreaElement>(null);
+  const attachImageInputRef = useRef<HTMLInputElement>(null);
 
   const canSubmitUrl = useMemo(() => issueUrl.trim().length > 0 && !submitting, [issueUrl, submitting]);
-  const canSubmitCreate = useMemo(() => createTitle.trim().length > 0 && !submitting, [createTitle, submitting]);
+  const canSubmitCreate = useMemo(
+    () => createTitle.trim().length > 0 && !submitting && !uploadingImage,
+    [createTitle, submitting, uploadingImage],
+  );
+
+  const insertMarkdownIntoDescription = useCallback(
+    (snippet: string) => {
+      const el = createDescriptionRef.current;
+      const selectionStart = el?.selectionStart ?? createDescription.length;
+      const selectionEnd = el?.selectionEnd ?? createDescription.length;
+      const inserted = wishInsertGitlabMarkdownSnippetAtTextareaSelectionV1({
+        text: createDescription,
+        selectionStart,
+        selectionEnd,
+        snippet,
+      });
+      setCreateDescription(inserted.nextText);
+      requestAnimationFrame(() => {
+        const ta = createDescriptionRef.current;
+        if (!ta) return;
+        ta.focus();
+        ta.setSelectionRange(inserted.nextSelectionStart, inserted.nextSelectionEnd);
+      });
+    },
+    [createDescription],
+  );
+
+  const uploadImageFileAndInsertMarkdown = useCallback(
+    async (file: File) => {
+      if (
+        !wishGitlabProjectUploadImageFileIsAllowedV1({
+          mimeType: file.type || "application/octet-stream",
+          byteLength: file.size,
+        })
+      ) {
+        setError("Imagem inválida. Use PNG, JPEG, GIF ou WebP até 12 MB.");
+        return;
+      }
+      setUploadingImage(true);
+      setError(null);
+      try {
+        const uploaded = await clientFetchGitlabProjectMarkdownImageUploadV1(file);
+        if (!uploaded.ok) {
+          setError(uploaded.message);
+          return;
+        }
+        insertMarkdownIntoDescription(uploaded.markdown);
+      } finally {
+        setUploadingImage(false);
+      }
+    },
+    [insertMarkdownIntoDescription],
+  );
 
   const handleAdd = useCallback(async () => {
     if (mode === "url") {
@@ -123,6 +181,7 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
     setCreateDescription("");
     setError(null);
     setSubmitting(false);
+    setUploadingImage(false);
   }, [props.open]);
 
   if (!props.open) return null;
@@ -141,7 +200,7 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
             type="button"
             className="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-900"
             onClick={() => {
-              if (submitting) return;
+              if (submitting || uploadingImage) return;
               setError(null);
               props.onClose();
             }}
@@ -236,7 +295,7 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
               placeholder="Ex.: Corrigir timeout no login"
               value={createTitle}
               onChange={(e) => setCreateTitle(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || uploadingImage}
               maxLength={255}
               onKeyDown={(e) => {
                 if (e.key !== "Enter") return;
@@ -244,18 +303,60 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
                 void handleAdd();
               }}
             />
-            <label className="mt-3 block text-sm text-zinc-700 dark:text-zinc-200" htmlFor="gitlab-create-description">
-              Descrição (opcional)
-            </label>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <label className="block text-sm text-zinc-700 dark:text-zinc-200" htmlFor="gitlab-create-description">
+                Descrição (opcional)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={attachImageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    void uploadImageFileAndInsertMarkdown(file);
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={submitting || uploadingImage}
+                  className="rounded-md border border-black/10 bg-white px-2 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-white/10 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                  onClick={() => attachImageInputRef.current?.click()}
+                  title="Enviar imagem ao GitLab e inserir na descrição"
+                >
+                  {uploadingImage ? "Enviando…" : "Anexar imagem"}
+                </button>
+              </div>
+            </div>
             <textarea
+              ref={createDescriptionRef}
               id="gitlab-create-description"
-              rows={4}
+              rows={5}
               className="mt-2 w-full resize-y rounded-md border border-black/10 bg-white px-3 py-2 text-sm outline-none ring-zinc-400 focus:ring-2 dark:border-white/10 dark:bg-zinc-950"
-              placeholder="Markdown suportado pelo GitLab…"
+              placeholder="Markdown do GitLab… Cole (Ctrl+V) uma imagem ou use Anexar imagem."
               value={createDescription}
               onChange={(e) => setCreateDescription(e.target.value)}
-              disabled={submitting}
+              disabled={submitting || uploadingImage}
+              onPaste={(e) => {
+                const items = e.clipboardData?.items;
+                if (!items) return;
+                for (const item of items) {
+                  if (!item.type.startsWith("image/")) continue;
+                  const file = item.getAsFile();
+                  if (!file) continue;
+                  e.preventDefault();
+                  void uploadImageFileAndInsertMarkdown(file);
+                  return;
+                }
+              }}
             />
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Imagens sobem para o projeto no GitLab e entram como Markdown{" "}
+              <span className="font-mono">![…](/uploads/…)</span>.
+            </p>
           </>
         )}
 
@@ -265,7 +366,7 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
           <button
             type="button"
             className="rounded-md px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-zinc-900"
-            disabled={submitting}
+            disabled={submitting || uploadingImage}
             onClick={() => {
               setError(null);
               props.onClose();
@@ -279,7 +380,13 @@ export function WishBoardModalAddGitlabIssueUrl(props: WishBoardModalAddGitlabIs
             disabled={mode === "url" ? !canSubmitUrl : !canSubmitCreate}
             onClick={() => void handleAdd()}
           >
-            {submitting ? (mode === "create" ? "Criando…" : "Adicionando…") : mode === "create" ? "Criar e adicionar" : "Adicionar"}
+            {submitting
+              ? mode === "create"
+                ? "Criando…"
+                : "Adicionando…"
+              : mode === "create"
+                ? "Criar e adicionar"
+                : "Adicionar"}
           </button>
         </div>
       </div>

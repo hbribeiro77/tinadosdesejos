@@ -4,5 +4,7 @@ export type WishAppRuntimeFlagsV1GetResponseDto =
       viewOnlyMode: boolean;
       boardImportRequiresApiKey: boolean;
       accessGateRequired: boolean;
+      /** Editor local: botão Publicar na VPS disponível (env configurada). */
+      productionPublishAvailable: boolean;
     }
   | { ok: false; message: string };

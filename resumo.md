@@ -50,7 +50,7 @@ Na primeira carga após o deploy: se o SQLite estiver **vazio** e ainda existir 
 1. Abre a página inicial; o quadro é carregado do **servidor** (com migração automática do `localStorage` se aplicável).
 2. Renomeia o título do quadro e o título das colunas para refletir áreas do produto.
 3. Adiciona colunas conforme necessidade.
-4. Em uma coluna, clica em **“+ Issue”**: pode **colar a URL** da issue (`.../-/issues/:iid`) ou usar a aba **Criar no GitLab** para abrir issue no projeto configurado em **`GITLAB_CREATE_ISSUE_PROJECT_PATH`** (padrão `portal-da-defensoria/portal-defensoria-gateway`, o mesmo namespace da URL web), com título e descrição opcional; o servidor chama **`POST /api/gitlab/issues/create-in-project`** e o card usa a URL retornada.
+4. Em uma coluna, clica em **“+ Issue”**: pode **colar a URL** da issue (`.../-/issues/:iid`) ou usar a aba **Criar no GitLab** para abrir issue no projeto configurado em **`GITLAB_CREATE_ISSUE_PROJECT_PATH`** (padrão `portal-da-defensoria/portal-defensoria-gateway`, o mesmo namespace da URL web), com título e descrição opcional; na descrição dá para **colar imagem** ou **Anexar imagem** (upload via **`POST /api/gitlab/project-markdown-image-upload-v1`** → GitLab `…/uploads`, markdown `![…](/uploads/…)`); o servidor chama **`POST /api/gitlab/issues/create-in-project`** e o card usa a URL retornada.
 5. A aplicação chama a rota **`POST /api/gitlab/issues/resolve`**, que busca metadados no GitLab (ou retorna **mock** em desenvolvimento) e o card passa a exibir título, estado, labels, link etc.
 6. Pode **arrastar cards** entre colunas (isso altera só o quadro local; **não** muda a issue no GitLab). Alterações no quadro são **salvas no servidor** (debounce ~450 ms).
 7. Usa **Atualizar** no card para reconsultar a API (inclui descrição Markdown e **espelho local** de imagens `/uploads/`).
@@ -84,14 +84,15 @@ Na primeira carga após o deploy: se o SQLite estiver **vazio** e ainda existir 
 - **`WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY`**: obrigatória em view-only. O **PUT** do quadro (Importar) exige `Authorization: Bearer <key>`; sem a env configurada, todo PUT retorna **403** (`unauthorized_import`). A UI pede a chave e guarda só em `sessionStorage` da aba.
 - **`WISH_APP_ACCESS_SECRET`**: se definido (não-vazio), portão em `/entrar` com cookie HttpOnly assinado; middleware bloqueia o restante (APIs 401, páginas redirect). Separado da chave de import. Sem a env (dev local), o app abre direto.
 - Sem `WISH_VIEW_ONLY_MODE`: editor completo (autosave sem chave). Na toolbar, **Prévia produção** congela só a UI.
-- Flags: `GET /api/wish-app-runtime-flags-v1` → `{ viewOnlyMode, boardImportRequiresApiKey, accessGateRequired }`.
+- Flags: `GET /api/wish-app-runtime-flags-v1` → `{ viewOnlyMode, boardImportRequiresApiKey, accessGateRequired, productionPublishAvailable }`.
+- **Publicar na VPS (editor local):** com `WISH_PRODUCTION_VIEWER_BASE_URL` + `WISH_PRODUCTION_VIEWER_IMPORT_API_KEY` (igual à chave de import do viewer), a toolbar mostra **Publicar na VPS**. O servidor local faz PUT de assets + quadro no viewer (Bearer); o portão `/entrar` libera esses PUT quando há Bearer (a rota ainda valida a key).
 
 ### Deploy viewer (checklist)
 
 1. `WISH_VIEW_ONLY_MODE=1` + `WISH_VIEW_ONLY_BOARD_IMPORT_API_KEY=<segredo longo>` + `WISH_APP_ACCESS_SECRET=<outro segredo longo>`.
 2. **Não** definir `GITLAB_TOKEN`, `GITLAB_MOCK`, `GITLAB_TLS_INSECURE_DEV` nem vars SmartTask (viewer só lê snapshot local).
 3. Volume persistente em `data/` (`triage.db` + `gitlab-description-uploaded-assets-v1/`). O markdown exportado do editor deve apontar para assets já espelhados; copie a pasta de assets junto com o JSON se for outra máquina.
-4. Fluxo: editar no editor local → **Atualizar** cards (espelha imagens em `data/`) → **Exportar** JSON **v2** (inclui imagens em base64) → no viewer, entrar com o secret de acesso → **Importar** com a chave (grava quadro + arquivos em `data/`). JSON v1 antigo não traz imagens — na VPS ficam quebradas porque o proxy GitLab está bloqueado.
+4. Fluxo: editar no editor local → **Atualizar** cards (espelha imagens em `data/`) → **Publicar na VPS** (ou Exportar JSON **v2** → no viewer, entrar → **Importar** com a chave). JSON v1 antigo não traz imagens — na VPS ficam quebradas porque o proxy GitLab está bloqueado.
 5. Reverse proxy: HTTPS; recomenda-se rate limit e/ou IP allowlist no `PUT` `/api/wish-kanban-board/persisted-v1` e no `POST` `/api/wish-app-access-gate-v1`.
 6. Smoke: flags com `viewOnlyMode: true` e `accessGateRequired: true`; sem cookie → redirect `/entrar`; `POST /api/gitlab/issues/resolve` → 403; import com Bearer correto → 200; descrição/imagens ok.
 

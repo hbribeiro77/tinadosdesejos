@@ -242,6 +242,95 @@ export async function gitlabServerHttpGetBufferWithPrivateTokenAndTlsDevFlag(
   }
 }
 
+/**
+ * `POST` multipart (ex.: upload de arquivo em `…/projects/:id/uploads`).
+ * Campo do arquivo deve se chamar `file` (API GitLab).
+ */
+export async function gitlabServerHttpPostMultipartFormDataWithPrivateTokenAndTlsDevFlag(
+  apiUrl: string,
+  token: string,
+  tlsInsecureDev: boolean,
+  formData: FormData,
+): Promise<GitlabServerHttpGetResult> {
+  if (tlsInsecureDev && apiUrl.startsWith("https:")) {
+    return gitlabPostMultipartFormDataHttpsIgnoringCert(apiUrl, token, formData);
+  }
+
+  try {
+    const upstream = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "PRIVATE-TOKEN": token,
+      },
+      body: formData,
+      cache: "no-store",
+    });
+    const bodyText = await upstream.text();
+    return { ok: true, status: upstream.status, bodyText };
+  } catch (cause) {
+    return { ok: false, cause };
+  }
+}
+
+async function gitlabPostMultipartFormDataHttpsIgnoringCert(
+  apiUrl: string,
+  token: string,
+  formData: FormData,
+): Promise<GitlabServerHttpGetResult> {
+  const fileEntry = formData.get("file");
+  if (!(fileEntry instanceof Blob)) {
+    return { ok: false, cause: new Error("FormData sem campo `file` (Blob/File).") };
+  }
+  const fileName =
+    fileEntry instanceof File && fileEntry.name
+      ? fileEntry.name
+      : "image.png";
+  const mime = fileEntry.type || "application/octet-stream";
+  const fileBytes = Buffer.from(await fileEntry.arrayBuffer());
+  const boundary = `----tinaUploadBoundary${Date.now().toString(16)}`;
+  const preamble = Buffer.from(
+    `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="file"; filename="${fileName.replace(/"/g, "")}"\r\n` +
+      `Content-Type: ${mime}\r\n\r\n`,
+    "utf8",
+  );
+  const epilogue = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+  const body = Buffer.concat([preamble, fileBytes, epilogue]);
+
+  const u = new URL(apiUrl);
+  return new Promise((resolve) => {
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        port: u.port || 443,
+        path: `${u.pathname}${u.search}`,
+        method: "POST",
+        headers: {
+          "PRIVATE-TOKEN": token,
+          "Content-Type": `multipart/form-data; boundary=${boundary}`,
+          "Content-Length": String(body.length),
+          "user-agent": "tinadosdesejos/gitlab-api",
+        },
+        rejectUnauthorized: false,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        res.on("end", () => {
+          resolve({
+            ok: true,
+            status: res.statusCode ?? 0,
+            bodyText: Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+      },
+    );
+    req.on("error", (cause) => resolve({ ok: false, cause }));
+    req.write(body);
+    req.end();
+  });
+}
+
 export async function gitlabServerHttpGetWithPrivateTokenAndTlsDevFlag(
   apiUrl: string,
   token: string,
