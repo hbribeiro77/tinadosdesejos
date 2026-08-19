@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useWishTinaDialog } from "@/components/dialog/wish-tina-dialog-context-provider-client";
 import type { WishKanbanBoard } from "@/lib/wish-kanban-board-domain-types";
 import {
@@ -10,6 +11,7 @@ import {
 import { clientFetchWishKanbanBoardPersistedV1Get } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
 import { clientFetchWishKanbanBoardPersistedV1Put } from "@/lib/client-fetch-wish-kanban-board-persisted-v1-api";
 import { clientFetchWishKanbanBoardDescriptionUploadedAssetsImportV1Put } from "@/lib/client-fetch-wish-kanban-board-description-uploaded-assets-import-v1-api";
+import { clientFetchWishPublishBoardToProductionViewerPreviewV1Post } from "@/lib/client-fetch-wish-publish-board-to-production-viewer-v1-api";
 import { clientFetchWishPublishBoardToProductionViewerV1Post } from "@/lib/client-fetch-wish-publish-board-to-production-viewer-v1-api";
 import {
   wishViewOnlyBoardImportApiKeyClearFromSessionStorageV1,
@@ -59,14 +61,20 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
   const tina = useWishTinaDialog();
   const boardImportRequiresApiKey = Boolean(props.boardImportRequiresApiKey);
   const productionPublishAvailable = Boolean(props.productionPublishAvailable);
+  const [exportingBoardJson, setExportingBoardJson] = useState(false);
+  const [publishingToVps, setPublishingToVps] = useState(false);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
+        disabled={exportingBoardJson || publishingToVps}
+        aria-busy={exportingBoardJson}
+        className="inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-medium text-zinc-900 shadow-sm transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-zinc-900"
         onClick={() => {
+          if (exportingBoardJson || publishingToVps) return;
           void (async () => {
+            setExportingBoardJson(true);
             try {
               const { assetCount } = await exportWishKanbanBoardJsonFileWithMirroredDescriptionAssetsV1(
                 props.board,
@@ -76,31 +84,47 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
                 await tina.alert(
                   "JSON exportado. Nenhuma imagem espelhada foi incluída (cards sem descrição com /uploads/ espelhado, ou assets ausentes no disco local).",
                 );
+              } else {
+                await tina.alert(
+                  `JSON exportado com ${assetCount} imagem(ns) espelhada(s).`,
+                );
               }
             } catch (cause) {
               const message = cause instanceof Error ? cause.message : "Falha ao exportar.";
-              void tina.alert(message);
+              await tina.alert(message);
+            } finally {
+              setExportingBoardJson(false);
             }
           })();
         }}
         title="Exportar JSON (quadro + imagens espelhadas da descrição)"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        <span className="hidden sm:inline">Exportar</span>
+        <span className="hidden sm:inline">{exportingBoardJson ? "Exportando…" : "Exportar"}</span>
       </button>
 
       {productionPublishAvailable ? (
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-md border border-emerald-600/40 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-950 shadow-sm transition-colors hover:bg-emerald-100 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-50 dark:hover:bg-emerald-900/50"
-          title="Envia o quadro e imagens espelhadas para o viewer na VPS (substitui o snapshot de produção)"
+          disabled={publishingToVps || exportingBoardJson}
+          aria-busy={publishingToVps}
+          className="inline-flex items-center gap-2 rounded-md border border-emerald-600/40 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-950 shadow-sm transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-500/40 dark:bg-emerald-950/40 dark:text-emerald-50 dark:hover:bg-emerald-900/50"
+          title="Compara com a VPS, mostra o diff e publica (só envia imagens que faltam lá)"
           onClick={() => {
+            if (publishingToVps || exportingBoardJson) return;
             void (async () => {
-              const confirmed = await tina.confirm(
-                "Publicar o quadro atual na VPS? Isso substitui o quadro e as imagens espelhadas no viewer de produção.",
-              );
-              if (!confirmed) return;
+              setPublishingToVps(true);
               try {
+                const preview = await clientFetchWishPublishBoardToProductionViewerPreviewV1Post({
+                  board: props.board,
+                });
+                if (!preview.ok) {
+                  await tina.alert(preview.message);
+                  return;
+                }
+                const confirmed = await tina.confirm(preview.confirmMessagePtBr);
+                if (!confirmed) return;
+
                 const result = await clientFetchWishPublishBoardToProductionViewerV1Post({
                   board: props.board,
                 });
@@ -108,22 +132,29 @@ export function WishKanbanBoardToolbarExportImportBoardJson(
                   await tina.alert(result.message);
                   return;
                 }
+                const skippedRemote =
+                  typeof result.assetSkippedAlreadyOnRemoteCount === "number" &&
+                  result.assetSkippedAlreadyOnRemoteCount > 0
+                    ? ` ${result.assetSkippedAlreadyOnRemoteCount} já estavam na VPS.`
+                    : "";
                 const missing =
                   result.missingLocalAssetCount > 0
                     ? ` ${result.missingLocalAssetCount} imagem(ns) referenciada(s) não estavam no disco local.`
                     : "";
                 await tina.alert(
-                  `Publicado em ${result.productionBaseUrl}. Imagens gravadas: ${result.assetWrittenCount}.${missing}`,
+                  `Publicado em ${result.productionBaseUrl}. Imagens enviadas: ${result.assetWrittenCount}.${skippedRemote}${missing}`,
                 );
               } catch (cause) {
                 const message = cause instanceof Error ? cause.message : "Falha ao publicar.";
                 await tina.alert(message);
+              } finally {
+                setPublishingToVps(false);
               }
             })();
           }}
         >
-          <span className="hidden sm:inline">Publicar na VPS</span>
-          <span className="sm:hidden">VPS</span>
+          <span className="hidden sm:inline">{publishingToVps ? "Publicando…" : "Publicar na VPS"}</span>
+          <span className="sm:hidden">{publishingToVps ? "…" : "VPS"}</span>
         </button>
       ) : null}
 

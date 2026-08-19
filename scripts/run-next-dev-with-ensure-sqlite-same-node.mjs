@@ -4,8 +4,10 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { nextDevShouldWipeDotNextCacheAfterSqliteEnsureStdout } from "./next-dev-should-wipe-dot-next-cache-after-sqlite-ensure-stdout.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -29,24 +31,33 @@ console.log(`[dev] Executável: ${nodeExe}`);
 
 const ensure = spawnSync(nodeExe, [ensureScript], {
   cwd: projectRoot,
-  stdio: "inherit",
+  encoding: "utf8",
   env: envWithNodeFirstInPath,
 });
+
+if (ensure.stdout) {
+  process.stdout.write(ensure.stdout);
+}
+if (ensure.stderr) {
+  process.stderr.write(ensure.stderr);
+}
 
 if (ensure.status !== 0) {
   process.exit(ensure.status ?? 1);
 }
 
-try {
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const nextDir = path.join(projectRoot, ".next");
-  if (fs.existsSync(nextDir)) {
-    fs.rmSync(nextDir, { recursive: true, force: true });
-    console.log("[dev] Cache .next removido após ensure:sqlite.");
+if (nextDevShouldWipeDotNextCacheAfterSqliteEnsureStdout(ensure.stdout)) {
+  try {
+    const nextDir = path.join(projectRoot, ".next");
+    if (fs.existsSync(nextDir)) {
+      fs.rmSync(nextDir, { recursive: true, force: true });
+      console.log("[dev] Cache .next removido após rebuild do better-sqlite3.");
+    }
+  } catch {
+    /* ignore */
   }
-} catch {
-  /* ignore */
+} else {
+  console.log("[dev] Mantendo cache .next (sqlite nativo já ok).");
 }
 
 const nextArgs = [nextBin, "dev", ...extraArgs];

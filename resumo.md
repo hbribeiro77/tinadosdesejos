@@ -85,7 +85,7 @@ Na primeira carga após o deploy: se o SQLite estiver **vazio** e ainda existir 
 - **`WISH_APP_ACCESS_SECRET`**: se definido (não-vazio), portão em `/entrar` com cookie HttpOnly assinado; middleware bloqueia o restante (APIs 401, páginas redirect). Separado da chave de import. Sem a env (dev local), o app abre direto.
 - Sem `WISH_VIEW_ONLY_MODE`: editor completo (autosave sem chave). Na toolbar, **Prévia produção** congela só a UI.
 - Flags: `GET /api/wish-app-runtime-flags-v1` → `{ viewOnlyMode, boardImportRequiresApiKey, accessGateRequired, productionPublishAvailable }`.
-- **Publicar na VPS (editor local):** com `WISH_PRODUCTION_VIEWER_BASE_URL` + `WISH_PRODUCTION_VIEWER_IMPORT_API_KEY` (igual à chave de import do viewer), a toolbar mostra **Publicar na VPS**. O servidor local faz PUT de assets + quadro no viewer (Bearer); o portão `/entrar` libera esses PUT quando há Bearer (a rota ainda valida a key).
+- **Publicar na VPS (editor local):** com `WISH_PRODUCTION_VIEWER_BASE_URL` + `WISH_PRODUCTION_VIEWER_IMPORT_API_KEY` (igual à chave de import do viewer), a toolbar mostra **Publicar na VPS**. Antes de enviar, o editor busca o quadro remoto, mostra o **diff** e só faz upload das **imagens que ainda não existem** na VPS; o PUT do quadro continua completo. O portão `/entrar` libera GET/PUT/presence-check com Bearer válido da chave de import.
 
 ### Deploy viewer (checklist)
 

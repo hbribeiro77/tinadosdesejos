@@ -117,4 +117,8 @@ if (secondError) {
 }
 
 writeBuiltForModulesMarker();
-console.log(`[sqlite] better-sqlite3 OK após rebuild (Node ${process.version}, modules=${currentModules}).`);
+console.log(
+  `[sqlite] better-sqlite3 OK após rebuild (Node ${process.version}, modules=${currentModules}).`,
+);
+/** Marcador estável para o script de `next dev` só apagar `.next` quando houve rebuild nativo. */
+console.log("[sqlite] native-rebuild-happened=yes");

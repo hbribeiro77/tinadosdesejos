@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { wishAppAccessGateIsEnabledFromServerEnvV1 } from "@/lib/wish-app-access-gate-is-enabled-from-server-env-v1";
-import { wishAppAccessGatePathAllowsBoardImportPutWithBearerWithoutSessionCookieV1 } from "@/lib/wish-app-access-gate-path-allows-board-import-put-with-bearer-without-session-cookie-v1";
+import {
+  wishAppAccessGateImportBearerMatchesConfiguredKeyFromEnvEdgeSafeV1,
+  wishAppAccessGatePathAllowsImportBearerWithoutSessionCookieV1,
+} from "@/lib/wish-app-access-gate-path-allows-import-bearer-without-session-cookie-v1";
 import { wishAppAccessGatePathIsPublicAllowlistV1 } from "@/lib/wish-app-access-gate-path-is-public-allowlist-v1";
 import { wishAppAccessSecretReadFromServerEnvV1 } from "@/lib/wish-app-access-secret-read-from-server-env-v1";
 import {
@@ -19,12 +22,13 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const authorization = request.headers.get("authorization");
   if (
-    wishAppAccessGatePathAllowsBoardImportPutWithBearerWithoutSessionCookieV1({
+    wishAppAccessGatePathAllowsImportBearerWithoutSessionCookieV1({
       pathname,
       method: request.method,
-      authorizationHeader: request.headers.get("authorization"),
-    })
+    }) &&
+    wishAppAccessGateImportBearerMatchesConfiguredKeyFromEnvEdgeSafeV1(authorization)
   ) {
     return NextResponse.next();
   }
