@@ -14,11 +14,7 @@ export function wishAppAccessGateParseBearerTokenFromAuthorizationHeaderEdgeSafe
 
 /** Comparação timing-safe Edge-safe (sem node:crypto). */
 export function wishAppAccessGateTimingSafeEqualUtf8StringsV1(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    let acc = 0;
-    for (let i = 0; i < a.length; i++) acc |= a.charCodeAt(i);
-    return false;
-  }
+  if (a.length !== b.length) return false;
   let mismatch = 0;
   for (let i = 0; i < a.length; i++) {
     mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
